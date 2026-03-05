@@ -9,7 +9,7 @@ from app.models import Event
 from app.ingestor.openf1 import fetch_drivers, fetch_location
 
 
-async def load_race(race_id: str, session_key: int) -> None:
+async def load_race(race_id: str, session_key: int) -> int:
     drivers = await fetch_drivers(session_key)
     print(f"Found {len(drivers)} drivers for session {session_key}")
 
@@ -57,3 +57,4 @@ async def load_race(race_id: str, session_key: int) -> None:
     results = await asyncio.gather(*tasks)
     total = sum(results)
     print(f"Done. Total events inserted: {total}")
+    return total
