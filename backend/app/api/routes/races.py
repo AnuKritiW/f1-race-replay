@@ -1,13 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import Response
 import json
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
-from app.models import Event, Snapshot
-from app.schemas import CarState, RaceState, RaceTimeline, TrackPoint, IngestResponse
+from app.database import AsyncSessionLocal, get_db
+from app.models import Event, RaceSession, Snapshot
+from app.schemas import (
+    AvailableSession, CarState, IngestRequest, RaceState, RaceTimeline,
+    SessionInfo, TrackPoint, IngestResponse,
+)
 from app.ingestor.loader import load_race
+from app.ingestor.openf1 import BASE_URL, _get, fetch_sessions
 from app.snapshot.builder import build_snapshots
 
 router = APIRouter()
@@ -149,6 +153,95 @@ async def get_track(race_id: str, db: AsyncSession = Depends(get_db)):
     )
     rows = result.all()
     return [TrackPoint(x=row[0], y=row[1]) for row in rows]
+
+
+@router.get("/sessions", response_model=list[SessionInfo])
+async def list_sessions(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(RaceSession).order_by(RaceSession.year.desc(), RaceSession.date_start))
+    sessions = result.scalars().all()
+    return [
+        SessionInfo(
+            race_id=s.race_id,
+            session_key=s.session_key,
+            session_name=s.session_name,
+            session_type=s.session_type,
+            event_name=s.event_name,
+            year=s.year,
+            date_start=s.date_start,
+            country_name=s.country_name,
+        )
+        for s in sessions
+    ]
+
+
+@router.get("/admin/sessions/available", response_model=list[AvailableSession])
+async def list_available_sessions(
+    year: int = Query(..., description="Season year"),
+    db: AsyncSession = Depends(get_db),
+):
+    openf1_sessions = await fetch_sessions(year)
+
+    result = await db.execute(select(RaceSession.session_key, RaceSession.race_id))
+    ingested = {row.session_key: row.race_id for row in result.all()}
+
+    return [
+        AvailableSession(
+            session_key=s["session_key"],
+            session_name=s.get("session_name", ""),
+            session_type=s.get("session_type", ""),
+            event_name=s.get("meeting_name", s.get("country_name", "")),
+            year=s.get("year", year),
+            date_start=s.get("date_start", ""),
+            country_name=s.get("country_name", ""),
+            ingested=s["session_key"] in ingested,
+            race_id=ingested.get(s["session_key"]),
+        )
+        for s in openf1_sessions
+        if "session_key" in s
+    ]
+
+
+async def _run_ingest(race_id: str, session_key: int) -> None:
+    # Fetch session metadata by session_key
+    sessions = await _get(f"{BASE_URL}/sessions", {"session_key": session_key})
+    meta = sessions[0] if sessions else {}
+
+    events_inserted = await load_race(race_id, session_key)
+    await build_snapshots(race_id)
+
+    async with AsyncSessionLocal() as db:
+        existing = await db.execute(
+            select(RaceSession).where(RaceSession.race_id == race_id)
+        )
+        if existing.scalar_one_or_none() is None:
+            db.add(RaceSession(
+                race_id=race_id,
+                session_key=session_key,
+                session_name=meta.get("session_name", ""),
+                session_type=meta.get("session_type", ""),
+                event_name=meta.get("meeting_name", meta.get("country_name", "")),
+                year=meta.get("year", 0),
+                date_start=meta.get("date_start", ""),
+                country_name=meta.get("country_name", ""),
+            ))
+            await db.commit()
+    print(f"Ingest complete: {race_id} — {events_inserted} events")
+
+
+@router.post("/admin/sessions/ingest", status_code=202)
+async def ingest_session(
+    body: IngestRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    existing = await db.execute(
+        select(RaceSession).where(RaceSession.race_id == body.race_id)
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail=f"race_id '{body.race_id}' already ingested")
+
+    background_tasks.add_task(_run_ingest, body.race_id, body.session_key)
+    return {"race_id": body.race_id, "status": "ingesting"}
 
 
 @router.post("/admin/races/{race_id}/ingest", response_model=IngestResponse)

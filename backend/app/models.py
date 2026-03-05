@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Float, String, JSON, DateTime, Index, PrimaryKeyConstraint, UniqueConstraint
+from sqlalchemy import Float, Integer, String, JSON, DateTime, Index, PrimaryKeyConstraint, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -28,6 +28,19 @@ class Event(Base):
         Index("ix_events_race_driver", "race_id", "driver_id"),
         UniqueConstraint("race_id", "driver_id", "timestamp", name="uq_events_race_driver_timestamp"),
     )
+
+
+class RaceSession(Base):
+    __tablename__ = "race_sessions"
+
+    race_id: Mapped[str] = mapped_column(String, primary_key=True)
+    session_key: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
+    session_name: Mapped[str] = mapped_column(String, nullable=False)
+    session_type: Mapped[str] = mapped_column(String, nullable=False)
+    event_name: Mapped[str] = mapped_column(String, nullable=False)
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    date_start: Mapped[str] = mapped_column(String, nullable=False)
+    country_name: Mapped[str] = mapped_column(String, nullable=False)
 
 
 class Snapshot(Base):
