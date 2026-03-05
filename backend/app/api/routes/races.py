@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
+import json
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +11,8 @@ from app.ingestor.loader import load_race
 from app.snapshot.builder import build_snapshots
 
 router = APIRouter()
+
+_bulk_states_cache: dict[str, bytes] = {}
 
 
 @router.get("/races/{race_id}/timeline", response_model=RaceTimeline)
@@ -62,6 +66,49 @@ async def get_state(
         cars[event.driver_id] = CarState(x=event.x, y=event.y, speed=event.speed)
 
     return RaceState(timestamp=at, cars=cars)
+
+
+@router.get("/races/{race_id}/states")
+async def get_bulk_states(
+    race_id: str,
+    step: int = Query(1, ge=1, description="Interval in seconds between states"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return a state snapshot for every `step` seconds across the full race."""
+    cache_key = f"{race_id}:{step}"
+    if cache_key in _bulk_states_cache:
+        return Response(content=_bulk_states_cache[cache_key], media_type="application/json")
+
+    timeline_result = await db.execute(
+        select(func.min(Event.timestamp), func.max(Event.timestamp))
+        .where(Event.race_id == race_id)
+    )
+    row = timeline_result.one()
+    if row[0] is None:
+        raise HTTPException(status_code=404, detail=f"Race '{race_id}' not found")
+    start_ts, end_ts = int(row[0]), int(row[1])
+
+    events_result = await db.execute(
+        select(Event.driver_id, Event.timestamp, Event.x, Event.y, Event.speed)
+        .where(Event.race_id == race_id)
+        .order_by(Event.timestamp)
+    )
+    events = events_result.all()
+
+    current_cars: dict[str, dict] = {}
+    event_idx = 0
+    states = []
+
+    for t in range(start_ts, end_ts + 1, step):
+        while event_idx < len(events) and events[event_idx].timestamp <= t:
+            e = events[event_idx]
+            current_cars[e.driver_id] = {"x": e.x, "y": e.y, "speed": e.speed}
+            event_idx += 1
+        states.append({"timestamp": float(t), "cars": {k: dict(v) for k, v in current_cars.items()}})
+
+    content = json.dumps(states).encode()
+    _bulk_states_cache[cache_key] = content
+    return Response(content=content, media_type="application/json")
 
 
 @router.get("/races/{race_id}/live", response_model=RaceState)

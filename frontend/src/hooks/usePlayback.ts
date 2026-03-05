@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchState } from '../api/client'
+import { fetchBulkStates } from '../api/client'
 import type { RaceState, RaceTimeline } from '../types'
 
 type Speed = 1 | 5 | 10
 
 interface PlaybackControls {
-  raceState: RaceState | null
+  bufferRef: React.RefObject<Map<number, RaceState>>
+  playheadRef: React.RefObject<number>
   playheadTime: number
+  isLoaded: boolean
   isPlaying: boolean
   speed: Speed
   play: () => void
@@ -17,28 +19,27 @@ interface PlaybackControls {
 
 export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackControls {
   const [playheadTime, setPlayheadTime] = useState(timeline.start_time)
+  const [isLoaded, setIsLoaded] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [speed, setSpeed] = useState<Speed>(1)
-  const [raceState, setRaceState] = useState<RaceState | null>(null)
 
   const rafRef = useRef<number | null>(null)
   const lastTimestampRef = useRef<number | null>(null)
   const playheadRef = useRef(playheadTime)
   const speedRef = useRef(speed)
-  const fetchingRef = useRef(false)
+  const bufferRef = useRef<Map<number, RaceState>>(new Map())
 
-  // Keep refs in sync with state
-  useEffect(() => { playheadRef.current = playheadTime }, [playheadTime])
   useEffect(() => { speedRef.current = speed }, [speed])
 
-  // Fetch race state when playhead changes, skip if previous fetch still in flight
+  // Load the entire race into the buffer once on mount
   useEffect(() => {
-    if (fetchingRef.current) return
-    fetchingRef.current = true
-    fetchState(raceId, playheadTime)
-      .then(setRaceState)
-      .finally(() => { fetchingRef.current = false })
-  }, [raceId, playheadTime])
+    fetchBulkStates(raceId).then(states => {
+      for (const state of states) {
+        bufferRef.current.set(Math.floor(state.timestamp), state)
+      }
+      setIsLoaded(true)
+    })
+  }, [raceId])
 
   const animate = useCallback((timestamp: number) => {
     if (lastTimestampRef.current === null) {
@@ -50,11 +51,13 @@ export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackCon
     const next = playheadRef.current + (deltaMs * speedRef.current) / 1000
 
     if (next >= timeline.end_time) {
+      playheadRef.current = timeline.end_time
       setPlayheadTime(timeline.end_time)
       setIsPlaying(false)
       return
     }
 
+    playheadRef.current = next
     setPlayheadTime(next)
     rafRef.current = requestAnimationFrame(animate)
   }, [timeline.end_time])
@@ -78,8 +81,10 @@ export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackCon
   const pause = useCallback(() => setIsPlaying(false), [])
   const scrubTo = useCallback((t: number) => {
     setIsPlaying(false)
-    setPlayheadTime(Math.max(timeline.start_time, Math.min(t, timeline.end_time)))
+    const clamped = Math.max(timeline.start_time, Math.min(t, timeline.end_time))
+    playheadRef.current = clamped
+    setPlayheadTime(clamped)
   }, [timeline.start_time, timeline.end_time])
 
-  return { raceState, playheadTime, isPlaying, speed, play, pause, setSpeed, scrubTo }
+  return { bufferRef, playheadRef, playheadTime, isLoaded, isPlaying, speed, play, pause, setSpeed, scrubTo }
 }
