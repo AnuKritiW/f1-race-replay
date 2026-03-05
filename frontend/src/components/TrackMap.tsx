@@ -4,7 +4,8 @@ import type { RaceState } from '../types'
 
 interface Props {
   raceId: string
-  raceState: RaceState | null
+  bufferRef: React.RefObject<Map<number, RaceState>>
+  playheadRef: React.RefObject<number>
 }
 
 const CANVAS_W = 800
@@ -12,7 +13,6 @@ const CANVAS_H = 600
 const PADDING = 40
 const CAR_RADIUS = 8
 
-// Deterministic color per driver abbreviation
 function driverColor(driverId: string): string {
   let hash = 0
   for (let i = 0; i < driverId.length; i++) {
@@ -40,7 +40,6 @@ function buildNormalizer(points: Array<{ x: number; y: number }>): Normalizer {
   const scaleY = drawH / (maxY - minY)
   const scale = Math.min(scaleX, scaleY)
 
-  // Center within canvas
   const offsetX = PADDING + (drawW - (maxX - minX) * scale) / 2
   const offsetY = PADDING + (drawH - (maxY - minY) * scale) / 2
 
@@ -52,7 +51,7 @@ function buildNormalizer(points: Array<{ x: number; y: number }>): Normalizer {
   }
 }
 
-export function TrackMap({ raceId, raceState }: Props) {
+export function TrackMap({ raceId, bufferRef, playheadRef }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [trackPoints, setTrackPoints] = useState<Array<{ x: number; y: number }>>([])
   const normRef = useRef<Normalizer | null>(null)
@@ -64,17 +63,24 @@ export function TrackMap({ raceId, raceState }: Props) {
     })
   }, [raceId])
 
+  // Dedicated rAF loop — runs at 60fps independent of React renders
   useEffect(() => {
+    if (trackPoints.length === 0) return
     const canvas = canvasRef.current
-    if (!canvas || !normRef.current) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    const norm = normRef.current
+    if (!canvas) return
 
-    ctx.clearRect(0, 0, CANVAS_W, CANVAS_H)
+    let rafId: number
 
-    // Draw track polyline
-    if (trackPoints.length > 1) {
+    function draw() {
+      rafId = requestAnimationFrame(draw)
+
+      const ctx = canvas!.getContext('2d')
+      const norm = normRef.current
+      if (!ctx || !norm) return
+
+      ctx.clearRect(0, 0, CANVAS_W, CANVAS_H)
+
+      // Draw track polyline
       ctx.beginPath()
       ctx.strokeStyle = '#888'
       ctx.lineWidth = 2
@@ -85,25 +91,46 @@ export function TrackMap({ raceId, raceState }: Props) {
         ctx.lineTo(x, y)
       }
       ctx.stroke()
+
+      // Draw cars with interpolation between buffered states
+      const playhead = playheadRef.current
+      const buffer = bufferRef.current
+      const floor = Math.floor(playhead)
+      const fromState = buffer.get(floor) ?? null
+      const toState = buffer.get(floor + 1) ?? fromState  // fall back if next second not buffered yet
+
+      if (!fromState) return  // buffer not loaded yet
+
+      const t = playhead - floor  // fractional second [0, 1)
+
+      for (const [driverId, toCar] of Object.entries(toState!.cars)) {
+        if (toCar.x == null || toCar.y == null || (toCar.x === 0 && toCar.y === 0)) continue
+
+        const fromCar = fromState.cars[driverId]
+        let drawX = toCar.x
+        let drawY = toCar.y
+        if (fromCar && !(fromCar.x === 0 && fromCar.y === 0)) {
+          drawX = fromCar.x + (toCar.x - fromCar.x) * t
+          drawY = fromCar.y + (toCar.y - fromCar.y) * t
+        }
+
+        const [cx, cy] = norm.toCanvas(drawX, drawY)
+        const color = driverColor(driverId)
+
+        ctx.beginPath()
+        ctx.arc(cx, cy, CAR_RADIUS, 0, Math.PI * 2)
+        ctx.fillStyle = color
+        ctx.fill()
+
+        ctx.fillStyle = '#fff'
+        ctx.font = 'bold 10px monospace'
+        ctx.fillText(driverId, cx + CAR_RADIUS + 2, cy + 4)
+      }
     }
 
-    // Draw cars
-    if (!raceState) return
-    for (const [driverId, car] of Object.entries(raceState.cars)) {
-      if (car.x == null || car.y == null || (car.x === 0 && car.y === 0)) continue
-      const [cx, cy] = norm.toCanvas(car.x, car.y)
-      const color = driverColor(driverId)
-
-      ctx.beginPath()
-      ctx.arc(cx, cy, CAR_RADIUS, 0, Math.PI * 2)
-      ctx.fillStyle = color
-      ctx.fill()
-
-      ctx.fillStyle = '#fff'
-      ctx.font = 'bold 10px monospace'
-      ctx.fillText(driverId, cx + CAR_RADIUS + 2, cy + 4)
-    }
-  }, [raceState, trackPoints])
+    rafId = requestAnimationFrame(draw)
+    return () => cancelAnimationFrame(rafId)
+  }, [trackPoints, bufferRef, playheadRef])
 
   return (
     <canvas

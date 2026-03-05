@@ -9,13 +9,13 @@ import type { RaceTimeline } from './types'
 const RACE_ID = 'singapore-2023-p1'
 
 function Replay({ timeline }: { timeline: RaceTimeline }) {
-  const { raceState, playheadTime, isPlaying, speed, play, pause, setSpeed, scrubTo } =
+  const { bufferRef, playheadRef, playheadTime, isPlaying, speed, play, pause, setSpeed, scrubTo } =
     usePlayback(RACE_ID, timeline)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '16px' }}>
       <h1 style={{ margin: 0 }}>F1 Race Replay — {RACE_ID}</h1>
-      <TrackMap raceId={RACE_ID} raceState={raceState} />
+      <TrackMap raceId={RACE_ID} bufferRef={bufferRef} playheadRef={playheadRef} />
       <Scrubber
         timeline={timeline}
         playheadTime={playheadTime}
