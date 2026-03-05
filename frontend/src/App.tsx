@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { fetchTimeline } from './api/client'
 import { usePlayback } from './hooks/usePlayback'
+import { TrackMap } from './components/TrackMap'
 import type { RaceTimeline } from './types'
 
-const RACE_ID = 'bahrain-2024'
+const RACE_ID = 'singapore-2023-p1'
 
 function Replay({ timeline }: { timeline: RaceTimeline }) {
   const { raceState, playheadTime, isPlaying, speed, play, pause, setSpeed, scrubTo } =
@@ -36,7 +37,7 @@ function Replay({ timeline }: { timeline: RaceTimeline }) {
         onChange={(e) => scrubTo(Number(e.target.value))}
         style={{ width: '100%' }}
       />
-      <p>Cars in state: {raceState ? Object.keys(raceState.cars).length : 0}</p>
+      <TrackMap raceId={RACE_ID} raceState={raceState} />
     </div>
   )
 }

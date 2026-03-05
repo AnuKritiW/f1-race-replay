@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, distinct
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -85,15 +85,22 @@ async def get_live(race_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.get("/races/{race_id}/track", response_model=list[TrackPoint])
 async def get_track(race_id: str, db: AsyncSession = Depends(get_db)):
+    # Pick one driver to trace the circuit in lap order
+    driver_result = await db.execute(
+        select(Event.driver_id)
+        .where(Event.race_id == race_id)
+        .limit(1)
+    )
+    driver = driver_result.scalar_one_or_none()
+    if driver is None:
+        raise HTTPException(status_code=404, detail=f"Race '{race_id}' not found")
+
     result = await db.execute(
-        select(distinct(Event.x), Event.y)
-        .where(Event.race_id == race_id, Event.x != 0, Event.y != 0)
-        .order_by(Event.x, Event.y)
-        .limit(5000)
+        select(Event.x, Event.y)
+        .where(Event.race_id == race_id, Event.driver_id == driver, Event.x != 0, Event.y != 0)
+        .order_by(Event.timestamp)
     )
     rows = result.all()
-    if not rows:
-        raise HTTPException(status_code=404, detail=f"Race '{race_id}' not found")
     return [TrackPoint(x=row[0], y=row[1]) for row in rows]
 
 

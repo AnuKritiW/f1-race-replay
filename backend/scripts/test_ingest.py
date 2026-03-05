@@ -1,5 +1,5 @@
 """
-Standalone test: ingest Bahrain 2024 race session, build snapshots, and print results.
+Standalone test: ingest Singapore 2023 Practice 1 session, build snapshots, and print results.
 
 Run from backend/ directory:
     uv run python scripts/test_ingest.py
@@ -17,7 +17,7 @@ from app.models import Event
 from app.ingestor.loader import load_race
 from app.snapshot.builder import build_snapshots
 
-RACE_ID = "bahrain-2024"
+RACE_ID = "singapore-2023-p1"
 SESSION_KEY = 9158
 
 
