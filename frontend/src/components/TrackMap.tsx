@@ -13,6 +13,18 @@ const CANVAS_H = 600
 const PADDING = 40
 const CAR_RADIUS = 8
 
+// Catmull-Rom spline: interpolate between p1 and p2 using p0 and p3 as tangent guides
+function catmullRom(p0: number, p1: number, p2: number, p3: number, t: number): number {
+  const t2 = t * t
+  const t3 = t2 * t
+  return 0.5 * (
+    2 * p1 +
+    (-p0 + p2) * t +
+    (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+    (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+  )
+}
+
 function driverColor(driverId: string): string {
   let hash = 0
   for (let i = 0; i < driverId.length; i++) {
@@ -92,27 +104,40 @@ export function TrackMap({ raceId, bufferRef, playheadRef }: Props) {
       }
       ctx.stroke()
 
-      // Draw cars with interpolation between buffered states
+      // Draw cars with Catmull-Rom spline interpolation
       const playhead = playheadRef.current
       const buffer = bufferRef.current
       const floor = Math.floor(playhead)
-      const fromState = buffer.get(floor) ?? null
-      const toState = buffer.get(floor + 1) ?? fromState  // fall back if next second not buffered yet
 
-      if (!fromState) return  // buffer not loaded yet
+      // Four control points: p0 (prev), p1 (from), p2 (to), p3 (next)
+      const s1 = buffer.get(floor) ?? null
+      const s2 = buffer.get(floor + 1) ?? null
+
+      if (!s1 || !s2) return  // need both flanking states
+
+      const s0 = buffer.get(floor - 1) ?? s1  // fall back to s1 if no prior second
+      const s3 = buffer.get(floor + 2) ?? s2  // fall back to s2 if no next second
 
       const t = playhead - floor  // fractional second [0, 1)
 
-      for (const [driverId, toCar] of Object.entries(toState!.cars)) {
-        if (toCar.x == null || toCar.y == null || (toCar.x === 0 && toCar.y === 0)) continue
+      for (const [driverId, p2car] of Object.entries(s2.cars)) {
+        if (p2car.x == null || p2car.y == null || (p2car.x === 0 && p2car.y === 0)) continue
 
-        const fromCar = fromState.cars[driverId]
-        let drawX = toCar.x
-        let drawY = toCar.y
-        if (fromCar && !(fromCar.x === 0 && fromCar.y === 0)) {
-          drawX = fromCar.x + (toCar.x - fromCar.x) * t
-          drawY = fromCar.y + (toCar.y - fromCar.y) * t
-        }
+        const p1car = s1.cars[driverId]
+        if (!p1car || (p1car.x === 0 && p1car.y === 0)) continue
+
+        // Use surrounding points for tangents, falling back to p1/p2 if unavailable
+        const p0car = s0.cars[driverId]
+        const p3car = s3.cars[driverId]
+        const p0x = (p0car && p0car.x !== 0) ? p0car.x : p1car.x
+        const p0y = (p0car && p0car.y !== 0) ? p0car.y : p1car.y
+        const p3x = (p3car && p3car.x !== 0) ? p3car.x : p2car.x
+        const p3y = (p3car && p3car.y !== 0) ? p3car.y : p2car.y
+
+        let drawX: number
+        let drawY: number
+        drawX = catmullRom(p0x, p1car.x, p2car.x, p3x, t)
+        drawY = catmullRom(p0y, p1car.y, p2car.y, p3y, t)
 
         const [cx, cy] = norm.toCanvas(drawX, drawY)
         const color = driverColor(driverId)
@@ -126,6 +151,7 @@ export function TrackMap({ raceId, bufferRef, playheadRef }: Props) {
         ctx.font = 'bold 10px monospace'
         ctx.fillText(driverId, cx + CAR_RADIUS + 2, cy + 4)
       }
+
     }
 
     rafId = requestAnimationFrame(draw)
