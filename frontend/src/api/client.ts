@@ -17,5 +17,8 @@ export const fetchState = (raceId: string, at: number): Promise<RaceState> =>
 export const fetchLive = (raceId: string): Promise<RaceState> =>
   get(`/races/${raceId}/live`)
 
+export const fetchBulkStates = (raceId: string): Promise<RaceState[]> =>
+  get(`/races/${raceId}/states`)
+
 export const fetchTrack = (raceId: string): Promise<Array<{ x: number; y: number }>> =>
   get(`/races/${raceId}/track`)
