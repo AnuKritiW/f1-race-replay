@@ -1,5 +1,5 @@
 """
-Standalone test: ingest Bahrain 2024 race session and print first 10 events.
+Standalone test: ingest Bahrain 2024 race session, build snapshots, and print results.
 
 Run from backend/ directory:
     uv run python scripts/test_ingest.py
@@ -15,6 +15,7 @@ from sqlalchemy import select, asc
 from app.database import AsyncSessionLocal
 from app.models import Event
 from app.ingestor.loader import load_race
+from app.snapshot.builder import build_snapshots
 
 RACE_ID = "bahrain-2024"
 SESSION_KEY = 9158
@@ -36,6 +37,9 @@ async def main() -> None:
     print(f"\nFirst {len(events)} events in DB:")
     for e in events:
         print(f"  {e.driver_id:>4}  t={e.timestamp:.3f}  x={e.x}  y={e.y}  speed={e.speed}")
+
+    print(f"\nBuilding snapshots for race_id='{RACE_ID}' ...")
+    await build_snapshots(RACE_ID)
 
 
 if __name__ == "__main__":
