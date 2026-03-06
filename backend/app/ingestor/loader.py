@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Callable
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -9,9 +10,18 @@ from app.models import Event
 from app.ingestor.openf1 import fetch_drivers, fetch_location
 
 
-async def load_race(race_id: str, session_key: int) -> int:
+async def load_race(
+    race_id: str,
+    session_key: int,
+    on_driver_done: Callable[[int, int], None] | None = None,
+    is_cancelled: Callable[[], bool] | None = None,
+) -> int:
     drivers = await fetch_drivers(session_key)
-    print(f"Found {len(drivers)} drivers for session {session_key}")
+    total = len(drivers)
+    print(f"Found {total} drivers for session {session_key}")
+
+    if on_driver_done:
+        on_driver_done(0, total)
 
     async def load_driver(driver: dict) -> int:
         driver_number = driver["driver_number"]
@@ -48,13 +58,23 @@ async def load_race(race_id: str, session_key: int) -> int:
         return len(rows)
 
     semaphore = asyncio.Semaphore(2)
+    done_count = 0
 
     async def load_driver_limited(driver: dict) -> int:
+        nonlocal done_count
+        if is_cancelled and is_cancelled():
+            return 0
         async with semaphore:
-            return await load_driver(driver)
+            if is_cancelled and is_cancelled():
+                return 0
+            result = await load_driver(driver)
+            done_count += 1
+            if on_driver_done:
+                on_driver_done(done_count, total)
+            return result
 
     tasks = [load_driver_limited(d) for d in drivers]
     results = await asyncio.gather(*tasks)
-    total = sum(results)
-    print(f"Done. Total events inserted: {total}")
-    return total
+    events_total = sum(results)
+    print(f"Done. Total events inserted: {events_total}")
+    return events_total

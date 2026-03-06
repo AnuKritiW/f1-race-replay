@@ -19,8 +19,8 @@ async def _get(url: str, params: dict) -> list[dict]:
         return []
 
 
-async def fetch_sessions(year: int, country_name: str) -> list[dict]:
-    return await _get(f"{BASE_URL}/sessions", {"year": year, "country_name": country_name})
+async def fetch_sessions(year: int) -> list[dict]:
+    return await _get(f"{BASE_URL}/sessions", {"year": year})
 
 
 async def fetch_drivers(session_key: int) -> list[dict]:

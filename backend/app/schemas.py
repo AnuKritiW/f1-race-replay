@@ -27,3 +27,31 @@ class IngestResponse(BaseModel):
     race_id: str
     events_inserted: int
     snapshots_written: int
+
+
+class SessionInfo(BaseModel):
+    race_id: str
+    session_key: int
+    session_name: str
+    session_type: str
+    event_name: str
+    year: int
+    date_start: str
+    country_name: str
+
+
+class AvailableSession(BaseModel):
+    session_key: int
+    session_name: str
+    session_type: str
+    event_name: str
+    year: int
+    date_start: str
+    country_name: str
+    ingested: bool
+    race_id: str | None = None
+
+
+class IngestRequest(BaseModel):
+    race_id: str
+    session_key: int
