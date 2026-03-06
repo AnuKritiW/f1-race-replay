@@ -17,6 +17,8 @@ from app.snapshot.builder import build_snapshots
 router = APIRouter()
 
 _bulk_states_cache: dict[str, bytes] = {}
+_ingest_state: dict[str, dict] = {}
+# { race_id: { 'total': int, 'done': int, 'status': 'running'|'cancelled'|'done' } }
 
 
 @router.get("/races/{race_id}/timeline", response_model=RaceTimeline)
@@ -202,30 +204,53 @@ async def list_available_sessions(
 
 
 async def _run_ingest(race_id: str, session_key: int) -> None:
-    # Fetch session metadata by session_key
-    sessions = await _get(f"{BASE_URL}/sessions", {"session_key": session_key})
-    meta = sessions[0] if sessions else {}
+    _ingest_state[race_id] = {"total": 0, "done": 0, "status": "running"}
 
-    events_inserted = await load_race(race_id, session_key)
-    await build_snapshots(race_id)
+    def on_driver_done(done: int, total: int) -> None:
+        _ingest_state[race_id]["done"] = done
+        _ingest_state[race_id]["total"] = total
 
-    async with AsyncSessionLocal() as db:
-        existing = await db.execute(
-            select(RaceSession).where(RaceSession.race_id == race_id)
+    def is_cancelled() -> bool:
+        return _ingest_state.get(race_id, {}).get("status") == "cancelled"
+
+    try:
+        sessions = await _get(f"{BASE_URL}/sessions", {"session_key": session_key})
+        meta = sessions[0] if sessions else {}
+
+        events_inserted = await load_race(
+            race_id, session_key,
+            on_driver_done=on_driver_done,
+            is_cancelled=is_cancelled,
         )
-        if existing.scalar_one_or_none() is None:
-            db.add(RaceSession(
-                race_id=race_id,
-                session_key=session_key,
-                session_name=meta.get("session_name", ""),
-                session_type=meta.get("session_type", ""),
-                event_name=meta.get("meeting_name", meta.get("country_name", "")),
-                year=meta.get("year", 0),
-                date_start=meta.get("date_start", ""),
-                country_name=meta.get("country_name", ""),
-            ))
-            await db.commit()
-    print(f"Ingest complete: {race_id} — {events_inserted} events")
+
+        if is_cancelled():
+            print(f"Ingest cancelled: {race_id}")
+            return
+
+        await build_snapshots(race_id)
+
+        async with AsyncSessionLocal() as db:
+            existing = await db.execute(
+                select(RaceSession).where(RaceSession.race_id == race_id)
+            )
+            if existing.scalar_one_or_none() is None:
+                db.add(RaceSession(
+                    race_id=race_id,
+                    session_key=session_key,
+                    session_name=meta.get("session_name", ""),
+                    session_type=meta.get("session_type", ""),
+                    event_name=meta.get("meeting_name", meta.get("country_name", "")),
+                    year=meta.get("year", 0),
+                    date_start=meta.get("date_start", ""),
+                    country_name=meta.get("country_name", ""),
+                ))
+                await db.commit()
+
+        _ingest_state[race_id]["status"] = "done"
+        print(f"Ingest complete: {race_id} — {events_inserted} events")
+    except Exception as e:
+        _ingest_state[race_id]["status"] = "error"
+        print(f"Ingest error: {race_id} — {e}")
 
 
 @router.post("/admin/sessions/ingest", status_code=202)
@@ -242,6 +267,23 @@ async def ingest_session(
 
     background_tasks.add_task(_run_ingest, body.race_id, body.session_key)
     return {"race_id": body.race_id, "status": "ingesting"}
+
+
+@router.get("/admin/sessions/{race_id}/progress")
+async def get_ingest_progress(race_id: str):
+    state = _ingest_state.get(race_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="No ingest found for this race_id")
+    return state
+
+
+@router.delete("/admin/sessions/{race_id}/ingest", status_code=200)
+async def cancel_ingest(race_id: str):
+    state = _ingest_state.get(race_id)
+    if state is None or state["status"] != "running":
+        raise HTTPException(status_code=404, detail="No active ingest for this race_id")
+    _ingest_state[race_id]["status"] = "cancelled"
+    return {"race_id": race_id, "status": "cancelled"}
 
 
 @router.post("/admin/races/{race_id}/ingest", response_model=IngestResponse)

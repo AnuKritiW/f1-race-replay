@@ -41,3 +41,10 @@ export const fetchAvailableSessions = (year: number): Promise<AvailableSession[]
 
 export const postIngest = (race_id: string, session_key: number): Promise<{ race_id: string; status: string }> =>
   post('/admin/sessions/ingest', { race_id, session_key })
+
+export const fetchIngestProgress = (race_id: string): Promise<{ total: number; done: number; status: string }> =>
+  get(`/admin/sessions/${race_id}/progress`)
+
+export const cancelIngest = (race_id: string): Promise<{ race_id: string; status: string }> => {
+  return fetch(`${BASE}/admin/sessions/${race_id}/ingest`, { method: 'DELETE' }).then((r) => r.json())
+}
