@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import Response
 import json
-from sqlalchemy import select, func
+from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
@@ -312,6 +312,24 @@ async def cancel_ingest(race_id: str):
         raise HTTPException(status_code=404, detail="No active ingest for this race_id")
     _ingest_state[race_id]["status"] = "cancelled"
     return {"race_id": race_id, "status": "cancelled"}
+
+
+@router.delete("/admin/sessions/{race_id}", status_code=200)
+async def delete_session(race_id: str, db: AsyncSession = Depends(get_db)):
+    """Delete all ingested data for a session."""
+    existing = await db.execute(select(RaceSession).where(RaceSession.race_id == race_id))
+    if existing.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail=f"No ingested session '{race_id}'")
+
+    await db.execute(delete(Event).where(Event.race_id == race_id))
+    await db.execute(delete(Snapshot).where(Snapshot.race_id == race_id))
+    await db.execute(delete(RaceSession).where(RaceSession.race_id == race_id))
+    await db.commit()
+
+    _bulk_states_cache.pop(race_id, None)
+    _ingest_state.pop(race_id, None)
+
+    return {"race_id": race_id, "status": "deleted"}
 
 
 @router.post("/admin/races/{race_id}/ingest", response_model=IngestResponse)

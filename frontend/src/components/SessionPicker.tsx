@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { cancelIngest, fetchActiveIngests, fetchAvailableSessions, fetchIngestProgress, postIngest } from '../api/client'
+import { cancelIngest, deleteSession, fetchActiveIngests, fetchAvailableSessions, fetchIngestProgress, postIngest } from '../api/client'
 import type { AvailableSession } from '../types'
 
 interface Props {
@@ -69,10 +69,11 @@ interface EventCardProps {
   ingestProgress: Map<number, IngestProgress>
   onIngest: (session: AvailableSession) => void
   onCancel: (sessionKey: number, raceId: string) => void
+  onDelete: (sessionKey: number, raceId: string) => void
   onSelect: (raceId: string, session: AvailableSession) => void
 }
 
-function EventCard({ name, sessions, year, ingestProgress, onIngest, onCancel, onSelect }: EventCardProps) {
+function EventCard({ name, sessions, year, ingestProgress, onIngest, onCancel, onDelete, onSelect }: EventCardProps) {
   const country = sessions[0]?.country_name ?? ''
 
   return (
@@ -155,12 +156,25 @@ function EventCard({ name, sessions, year, ingestProgress, onIngest, onCancel, o
 
           if (s.ingested && s.race_id) {
             return (
-              <SessionChip
-                key={s.session_key}
-                label={s.session_name}
-                variant="ingested"
-                onClick={() => onSelect(s.race_id!, s)}
-              />
+              <div key={s.session_key} style={{ position: 'relative', display: 'inline-flex' }}>
+                <SessionChip
+                  label={s.session_name}
+                  variant="ingested"
+                  onClick={() => onSelect(s.race_id!, s)}
+                />
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDelete(s.session_key, s.race_id!) }}
+                  title="Remove session data"
+                  style={{
+                    position: 'absolute', right: '-6px', top: '-6px',
+                    width: '16px', height: '16px',
+                    background: '#333', border: '1px solid #555', borderRadius: '50%',
+                    color: '#aaa', cursor: 'pointer', fontSize: '9px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: 0,
+                  }}
+                >✕</button>
+              </div>
             )
           }
 
@@ -327,6 +341,18 @@ export function SessionPicker({ onSelect, year, onYearChange, scrollYRef }: Prop
     startProgressPoll(session.session_key, raceId)
   }
 
+  async function handleDelete(sessionKey: number, raceId: string) {
+    if (!confirm(`Remove all data for ${raceId}? This cannot be undone.`)) return
+    try {
+      await deleteSession(raceId)
+      setSessions((prev) =>
+        prev.map((s) => s.session_key === sessionKey ? { ...s, ingested: false, race_id: null } : s)
+      )
+    } catch (e: unknown) {
+      setError(`Delete failed: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
   async function handleCancel(sessionKey: number, raceId: string) {
     stopPoll(sessionKey)
     setIngestProgress((prev) => { const next = new Map(prev); next.delete(sessionKey); return next })
@@ -418,6 +444,7 @@ export function SessionPicker({ onSelect, year, onYearChange, scrollYRef }: Prop
                 ingestProgress={ingestProgress}
                 onIngest={handleIngest}
                 onCancel={handleCancel}
+                onDelete={handleDelete}
                 onSelect={onSelect}
               />
             ))

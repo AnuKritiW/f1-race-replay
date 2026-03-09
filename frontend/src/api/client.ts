@@ -54,3 +54,9 @@ export const fetchActiveIngests = (): Promise<Record<string, { done: number; tot
 export const cancelIngest = (race_id: string): Promise<{ race_id: string; status: string }> => {
   return fetch(`${BASE}/admin/sessions/${race_id}/ingest`, { method: 'DELETE' }).then((r) => r.json())
 }
+
+export const deleteSession = (race_id: string): Promise<{ race_id: string; status: string }> =>
+  fetch(`${BASE}/admin/sessions/${race_id}`, { method: 'DELETE' }).then((r) => {
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+    return r.json()
+  })
