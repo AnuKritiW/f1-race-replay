@@ -14,9 +14,10 @@ const SPEEDS: Speed[] = [1, 5, 10]
 
 export function PlaybackControls({ isPlaying, speed, onPlay, onPause, onSetSpeed }: Props) {
   const [playHovered, setPlayHovered] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4px 0' }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px 0', gap: '8px', position: 'relative' }}>
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -37,6 +38,7 @@ export function PlaybackControls({ isPlaying, speed, onPlay, onPause, onSetSpeed
             padding: '4px 10px',
             borderRadius: '999px',
             fontSize: '14px',
+            cursor: 'pointer',
           }}
         >
           {isPlaying ? '⏸' : '▶'}
@@ -46,15 +48,66 @@ export function PlaybackControls({ isPlaying, speed, onPlay, onPause, onSetSpeed
           <SpeedButton key={s} value={s} active={speed === s} onClick={() => onSetSpeed(s)} />
         ))}
       </div>
-      <div style={{
-        textAlign: 'center',
-        marginTop: '4px',
-        fontSize: '11px',
-        color: 'var(--color-muted)',
-        fontFamily: 'var(--font-data)',
-        letterSpacing: '0.5px',
-      }}>
-        SPACE · ← → · [ ]
+      <div style={{ position: 'relative' }}>
+        <button
+          onClick={() => setShowHelp((v) => !v)}
+          style={{
+            background: showHelp ? 'rgba(255,255,255,0.08)' : 'transparent',
+            border: '1px solid var(--color-border)',
+            color: 'var(--color-muted)',
+            borderRadius: '999px',
+            width: '24px',
+            height: '24px',
+            fontSize: '12px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}
+        >
+          ?
+        </button>
+        {showHelp && (
+          <div style={{
+            position: 'absolute',
+            bottom: 'calc(100% + 8px)',
+            right: 0,
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: '8px',
+            padding: '10px 14px',
+            whiteSpace: 'nowrap',
+            zIndex: 100,
+          }}>
+            {([
+              ['Space', 'Play / Pause'],
+              ['← →', 'Scrub ±10s'],
+              ['[', 'Slower'],
+              [']', 'Faster'],
+            ] as [string, string][]).map(([key, desc]) => (
+              <div key={key} style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '3px 0' }}>
+                <kbd style={{
+                  fontFamily: 'var(--font-data)',
+                  fontSize: '11px',
+                  color: 'var(--color-text)',
+                  background: 'rgba(255,255,255,0.08)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: '4px',
+                  padding: '1px 6px',
+                  minWidth: '36px',
+                  textAlign: 'center',
+                  display: 'inline-block',
+                }}>
+                  {key}
+                </kbd>
+                <span style={{ fontFamily: 'var(--font-data)', fontSize: '12px', color: 'var(--color-muted)' }}>
+                  {desc}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

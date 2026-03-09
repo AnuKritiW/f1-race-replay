@@ -99,7 +99,7 @@ function ReplayPlayer({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.target instanceof HTMLInputElement) return
+      if (e.target instanceof HTMLInputElement && e.target.type !== 'range') return
       if (e.code === 'Space') {
         e.preventDefault()
         isPlaying ? pause() : play()
