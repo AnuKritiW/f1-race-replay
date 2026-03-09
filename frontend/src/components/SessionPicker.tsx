@@ -67,13 +67,15 @@ interface EventCardProps {
   sessions: AvailableSession[]
   year: number
   ingestProgress: Map<number, IngestProgress>
+  failedIngests: Map<number, string>
   onIngest: (session: AvailableSession) => void
+  onRetry: (session: AvailableSession) => void
   onCancel: (sessionKey: number, raceId: string) => void
   onDelete: (sessionKey: number, raceId: string) => void
   onSelect: (raceId: string, session: AvailableSession) => void
 }
 
-function EventCard({ name, sessions, year, ingestProgress, onIngest, onCancel, onDelete, onSelect }: EventCardProps) {
+function EventCard({ name, sessions, year, ingestProgress, failedIngests, onIngest, onRetry, onCancel, onDelete, onSelect }: EventCardProps) {
   const country = sessions[0]?.country_name ?? ''
 
   return (
@@ -124,6 +126,18 @@ function EventCard({ name, sessions, year, ingestProgress, onIngest, onCancel, o
         {sessions.map((s) => {
           const progress = ingestProgress.get(s.session_key)
           const isIngesting = !!progress
+          const isFailed = failedIngests.has(s.session_key)
+
+          if (isFailed) {
+            return (
+              <SessionChip
+                key={s.session_key}
+                label={`${s.session_name} ⟳`}
+                variant="failed"
+                onClick={() => onRetry(s)}
+              />
+            )
+          }
 
           if (isIngesting) {
             return (
@@ -213,7 +227,7 @@ function SessionChip({
   onClick,
 }: {
   label: string
-  variant: 'ingested' | 'available'
+  variant: 'ingested' | 'available' | 'failed'
   onClick: () => void
 }) {
   const [hovered, setHovered] = useState(false)
@@ -243,12 +257,20 @@ function SessionChip({
     color: hovered ? 'var(--color-text)' : 'var(--color-muted)',
   }
 
+  const failed: React.CSSProperties = {
+    background: 'rgba(255,85,85,0.08)',
+    border: '1px solid #f55',
+    color: '#f88',
+  }
+
+  const variantStyle = variant === 'ingested' ? ingested : variant === 'failed' ? failed : available
+
   return (
     <button
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{ ...base, ...(variant === 'ingested' ? ingested : available) }}
+      style={{ ...base, ...variantStyle }}
     >
       {label}
     </button>
@@ -260,6 +282,7 @@ export function SessionPicker({ onSelect, year, onYearChange, scrollYRef }: Prop
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [ingestProgress, setIngestProgress] = useState<Map<number, IngestProgress>>(new Map())
+  const [failedIngests, setFailedIngests] = useState<Map<number, string>>(new Map()) // sessionKey → raceId
   const pollRefs = useRef<Map<number, ReturnType<typeof setInterval>>>(new Map())
 
   // Restore scroll position after sessions have loaded (page must be tall enough first)
@@ -327,7 +350,11 @@ export function SessionPicker({ onSelect, year, onYearChange, scrollYRef }: Prop
             )
           )
           setIngestProgress((prev) => { const next = new Map(prev); next.delete(sessionKey); return next })
-        } else if (prog.status === 'cancelled' || prog.status === 'error') {
+        } else if (prog.status === 'error') {
+          stopPoll(sessionKey)
+          setIngestProgress((prev) => { const next = new Map(prev); next.delete(sessionKey); return next })
+          setFailedIngests((prev) => new Map(prev).set(sessionKey, raceId))
+        } else if (prog.status === 'cancelled') {
           stopPoll(sessionKey)
           setIngestProgress((prev) => { const next = new Map(prev); next.delete(sessionKey); return next })
         }
@@ -348,7 +375,7 @@ export function SessionPicker({ onSelect, year, onYearChange, scrollYRef }: Prop
       const msg = e instanceof Error ? e.message : String(e)
       if (!msg.includes('409')) {
         setIngestProgress((prev) => { const next = new Map(prev); next.delete(session.session_key); return next })
-        setError(`Ingest failed: ${msg}`)
+        setFailedIngests((prev) => new Map(prev).set(session.session_key, raceId))
         return
       }
     }
@@ -366,6 +393,11 @@ export function SessionPicker({ onSelect, year, onYearChange, scrollYRef }: Prop
     } catch (e: unknown) {
       setError(`Delete failed: ${e instanceof Error ? e.message : String(e)}`)
     }
+  }
+
+  function handleRetry(session: AvailableSession) {
+    setFailedIngests((prev) => { const next = new Map(prev); next.delete(session.session_key); return next })
+    handleIngest(session)
   }
 
   async function handleCancel(sessionKey: number, raceId: string) {
@@ -457,7 +489,9 @@ export function SessionPicker({ onSelect, year, onYearChange, scrollYRef }: Prop
                 sessions={eventSessions}
                 year={year}
                 ingestProgress={ingestProgress}
+                failedIngests={failedIngests}
                 onIngest={handleIngest}
+                onRetry={handleRetry}
                 onCancel={handleCancel}
                 onDelete={handleDelete}
                 onSelect={onSelect}
