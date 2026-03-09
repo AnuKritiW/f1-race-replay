@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchTimeline } from './api/client'
+import { fetchDriverColors, fetchTimeline } from './api/client'
 import { usePlayback } from './hooks/usePlayback'
 import { TrackMap } from './components/TrackMap'
 import { PlaybackControls } from './components/PlaybackControls'
@@ -102,6 +102,11 @@ function ReplayPlayer({
   const { bufferRef, playheadRef, playheadTime, isLoaded, isPlaying, speed, play, pause, setSpeed, scrubTo } =
     usePlayback(raceId, timeline)
 
+  const [colorMap, setColorMap] = useState<Record<string, string>>({})
+  useEffect(() => {
+    fetchDriverColors(raceId).then(setColorMap).catch(() => {})
+  }, [raceId])
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement) return
@@ -147,10 +152,10 @@ function ReplayPlayer({
           display: 'flex',
           flexDirection: 'column',
         }}>
-          <TimingTower bufferRef={bufferRef} playheadRef={playheadRef} />
+          <TimingTower bufferRef={bufferRef} playheadRef={playheadRef} colorMap={colorMap} />
         </aside>
         <div style={{ flex: 1, overflow: 'hidden' }}>
-          <TrackMap raceId={raceId} bufferRef={bufferRef} playheadRef={playheadRef} />
+          <TrackMap raceId={raceId} bufferRef={bufferRef} playheadRef={playheadRef} colorMap={colorMap} />
         </div>
       </main>
       <footer style={{

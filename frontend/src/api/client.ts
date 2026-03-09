@@ -33,6 +33,9 @@ export const fetchBulkStates = (raceId: string): Promise<RaceState[]> =>
 export const fetchTrack = (raceId: string): Promise<Array<{ x: number; y: number }>> =>
   get(`/races/${raceId}/track`)
 
+export const fetchDriverColors = (raceId: string): Promise<Record<string, string>> =>
+  get(`/races/${raceId}/drivers`)
+
 export const fetchSessions = (): Promise<SessionInfo[]> =>
   get('/sessions')
 

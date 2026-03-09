@@ -136,6 +136,24 @@ async def get_live(race_id: str, db: AsyncSession = Depends(get_db)):
     return RaceState(timestamp=snapshot.timestamp, cars=cars)
 
 
+@router.get("/races/{race_id}/drivers")
+async def get_driver_colors(race_id: str, db: AsyncSession = Depends(get_db)):
+    """Return {acronym: '#rrggbb'} for every driver in this session, sourced from OpenF1."""
+    result = await db.execute(
+        select(RaceSession.session_key).where(RaceSession.race_id == race_id)
+    )
+    session_key = result.scalar_one_or_none()
+    if session_key is None:
+        raise HTTPException(status_code=404, detail=f"Race '{race_id}' not found")
+
+    drivers = await _get(f"{BASE_URL}/drivers", {"session_key": session_key})
+    return {
+        d["name_acronym"]: f"#{d['team_colour']}"
+        for d in drivers
+        if d.get("name_acronym") and d.get("team_colour")
+    }
+
+
 @router.get("/races/{race_id}/track", response_model=list[TrackPoint])
 async def get_track(race_id: str, db: AsyncSession = Depends(get_db)):
     # Pick one driver to trace the circuit in lap order

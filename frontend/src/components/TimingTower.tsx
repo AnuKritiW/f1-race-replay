@@ -5,6 +5,7 @@ import { driverColor } from '../utils/driverColor'
 interface Props {
   bufferRef: React.RefObject<Map<number, RaceState>>
   playheadRef: React.RefObject<number>
+  colorMap: Record<string, string>
 }
 
 interface DriverEntry {
@@ -12,7 +13,7 @@ interface DriverEntry {
   speed: number
 }
 
-export function TimingTower({ bufferRef, playheadRef }: Props) {
+export function TimingTower({ bufferRef, playheadRef, colorMap }: Props) {
   const [drivers, setDrivers] = useState<DriverEntry[]>([])
 
   useEffect(() => {
@@ -57,7 +58,7 @@ export function TimingTower({ bufferRef, playheadRef }: Props) {
               }} />
             ))
           : drivers.map(({ id, speed }) => (
-              <DriverRow key={id} id={id} speed={speed} />
+              <DriverRow key={id} id={id} speed={speed} color={colorMap[id] ?? driverColor(id)} />
             ))
         }
       </div>
@@ -65,9 +66,8 @@ export function TimingTower({ bufferRef, playheadRef }: Props) {
   )
 }
 
-function DriverRow({ id, speed }: { id: string; speed: number }) {
+function DriverRow({ id, speed, color }: { id: string; speed: number; color: string }) {
   const [hovered, setHovered] = useState(false)
-  const color = driverColor(id)
   return (
     <div
       onMouseEnter={() => setHovered(true)}

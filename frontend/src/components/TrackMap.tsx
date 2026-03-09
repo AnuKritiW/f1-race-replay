@@ -7,10 +7,11 @@ interface Props {
   raceId: string
   bufferRef: React.RefObject<Map<number, RaceState>>
   playheadRef: React.RefObject<number>
+  colorMap: Record<string, string>
 }
 
 const PADDING = 40
-const CAR_RADIUS = 8
+const CAR_RADIUS = 10
 
 function catmullRom(p0: number, p1: number, p2: number, p3: number, t: number): number {
   const t2 = t * t
@@ -53,13 +54,14 @@ function buildNormalizer(points: Array<{ x: number; y: number }>, w: number, h: 
   }
 }
 
-export function TrackMap({ raceId, bufferRef, playheadRef }: Props) {
+export function TrackMap({ raceId, bufferRef, playheadRef, colorMap }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [trackPoints, setTrackPoints] = useState<Array<{ x: number; y: number }>>([])
   const [size, setSize] = useState({ w: 800, h: 600 })
   const sizeRef = useRef(size)
   const normRef = useRef<Normalizer | null>(null)
+  const colorMapRef = useRef<Record<string, string>>(colorMap)
 
   // ResizeObserver — keep canvas filling its container
   useEffect(() => {
@@ -79,6 +81,9 @@ export function TrackMap({ raceId, bufferRef, playheadRef }: Props) {
   useEffect(() => {
     fetchTrack(raceId).then(setTrackPoints)
   }, [raceId])
+
+  // Keep colorMapRef in sync without restarting the rAF loop
+  useEffect(() => { colorMapRef.current = colorMap }, [colorMap])
 
   // Rebuild normalizer when track or canvas size changes
   useEffect(() => {
@@ -159,13 +164,7 @@ export function TrackMap({ raceId, bufferRef, playheadRef }: Props) {
         const drawY = catmullRom(p0y, p1car.y, p2car.y, p3y, t)
 
         const [cx, cy] = norm.toCanvas(drawX, drawY)
-        const color = driverColor(driverId)
-
-        // Car glow
-        ctx.beginPath()
-        ctx.arc(cx, cy, CAR_RADIUS * 2.5, 0, Math.PI * 2)
-        ctx.fillStyle = color + '33'
-        ctx.fill()
+        const color = colorMapRef.current[driverId] ?? driverColor(driverId)
 
         // Car dot
         ctx.beginPath()
