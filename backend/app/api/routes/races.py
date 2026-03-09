@@ -287,6 +287,16 @@ async def ingest_session(
     return {"race_id": body.race_id, "status": "ingesting"}
 
 
+@router.get("/admin/sessions/ingest/active")
+async def get_active_ingests():
+    """Return all currently running ingestions as {race_id: {done, total}}."""
+    return {
+        race_id: {"done": state["done"], "total": state["total"]}
+        for race_id, state in _ingest_state.items()
+        if state["status"] == "running"
+    }
+
+
 @router.get("/admin/sessions/{race_id}/progress")
 async def get_ingest_progress(race_id: str):
     state = _ingest_state.get(race_id)

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { cancelIngest, fetchAvailableSessions, fetchIngestProgress, postIngest } from '../api/client'
+import { cancelIngest, fetchActiveIngests, fetchAvailableSessions, fetchIngestProgress, postIngest } from '../api/client'
 import type { AvailableSession } from '../types'
 
 interface Props {
@@ -243,12 +243,33 @@ export function SessionPicker({ onSelect, year, onYearChange, scrollYRef }: Prop
   }, [loading, sessions, scrollYRef])
 
   useEffect(() => {
+    let ignore = false
     setLoading(true)
     setError(null)
+    setSessions([])
     fetchAvailableSessions(year)
-      .then(setSessions)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
+      .then((data) => {
+        if (ignore) return
+        setSessions(data)
+        // Best-effort: restore progress rings for any ingestions still running on the server
+        fetchActiveIngests().then((active) => {
+          if (ignore || Object.keys(active).length === 0) return
+          const toRestore: Array<[number, IngestProgress]> = []
+          data.forEach((s) => {
+            const raceId = generateRaceId(s)
+            if (active[raceId] && !pollRefs.current.has(s.session_key)) {
+              toRestore.push([s.session_key, { done: active[raceId].done, total: active[raceId].total, raceId }])
+            }
+          })
+          if (toRestore.length > 0) {
+            setIngestProgress(new Map(toRestore))
+            toRestore.forEach(([sessionKey, { raceId }]) => startProgressPoll(sessionKey, raceId))
+          }
+        }).catch(() => {}) // best-effort — never block the session list on this
+      })
+      .catch((e) => { if (!ignore) setError(e.message) })
+      .finally(() => { if (!ignore) setLoading(false) })
+    return () => { ignore = true }
   }, [year])
 
   function stopPoll(sessionKey: number) {
