@@ -156,25 +156,12 @@ function EventCard({ name, sessions, year, ingestProgress, onIngest, onCancel, o
 
           if (s.ingested && s.race_id) {
             return (
-              <div key={s.session_key} style={{ position: 'relative', display: 'inline-flex' }}>
-                <SessionChip
-                  label={s.session_name}
-                  variant="ingested"
-                  onClick={() => onSelect(s.race_id!, s)}
-                />
-                <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(s.session_key, s.race_id!) }}
-                  title="Remove session data"
-                  style={{
-                    position: 'absolute', right: '-6px', top: '-6px',
-                    width: '16px', height: '16px',
-                    background: '#333', border: '1px solid #555', borderRadius: '50%',
-                    color: '#aaa', cursor: 'pointer', fontSize: '9px',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    padding: 0,
-                  }}
-                >✕</button>
-              </div>
+              <IngestedChip
+                key={s.session_key}
+                label={s.session_name}
+                onClick={() => onSelect(s.race_id!, s)}
+                onDelete={() => onDelete(s.session_key, s.race_id!)}
+              />
             )
           }
 
@@ -188,6 +175,31 @@ function EventCard({ name, sessions, year, ingestProgress, onIngest, onCancel, o
           )
         })}
       </div>
+    </div>
+  )
+}
+
+function IngestedChip({ label, onClick, onDelete }: { label: string; onClick: () => void; onDelete: () => void }) {
+  const [hovered, setHovered] = useState(false)
+  return (
+    <div
+      style={{ position: 'relative', display: 'inline-flex' }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <SessionChip label={label} variant="ingested" onClick={onClick} />
+      <button
+        onClick={(e) => { e.stopPropagation(); onDelete() }}
+        title="Remove session data"
+        style={{
+          position: 'absolute', right: '-6px', top: '-6px',
+          width: '16px', height: '16px',
+          background: '#333', border: '1px solid #555', borderRadius: '50%',
+          color: '#aaa', cursor: 'pointer', fontSize: '9px',
+          display: hovered ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center',
+          padding: 0,
+        }}
+      >✕</button>
     </div>
   )
 }
