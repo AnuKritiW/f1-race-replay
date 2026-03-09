@@ -12,7 +12,7 @@ interface Props {
 const YEARS = [2025, 2024, 2023]
 
 function generateRaceId(session: AvailableSession): string {
-  const country = session.country_name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+  const country = (session.circuit_short_name || session.country_name).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
   const year = session.year
   const nameMap: Record<string, string> = {
     'Practice 1': 'p1',
@@ -31,7 +31,7 @@ function generateRaceId(session: AvailableSession): string {
 function groupByEvent(sessions: AvailableSession[]): Map<string, AvailableSession[]> {
   const map = new Map<string, AvailableSession[]>()
   for (const s of sessions) {
-    const key = s.event_name || s.country_name
+    const key = s.circuit_short_name || s.event_name || s.country_name
     const arr = map.get(key) ?? []
     arr.push(s)
     map.set(key, arr)

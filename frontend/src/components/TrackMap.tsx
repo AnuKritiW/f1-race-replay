@@ -13,6 +13,37 @@ interface Props {
 const PADDING = 40
 const CAR_RADIUS = 10
 
+const CIRCUIT_ROTATION: Record<string, number> = {
+  'sakhir': 92,
+  'jeddah': 109,
+  'melbourne': 43,
+  'suzuka': 0,
+  'shanghai': 123,
+  'miami': 0,
+  'imola': 0,
+  'monte-carlo': -45,
+  'montreal': 67,
+  'catalunya': -58,
+  'spielberg': 21,
+  'silverstone': -90,
+  'hungaroring': -51,
+  'spa-francorchamps': 96,
+  'zandvoort': 180,
+  'monza': 94,
+  'baku': -52,
+  'singapore': 0,
+  'austin': 0,
+  'mexico-city': 7,
+  'interlagos': -90,
+  'las-vegas': 90,
+  'lusail': 61,
+  'yas-marina-circuit': -100  
+}
+
+function circuitKey(raceId: string): string {
+  return raceId.replace(/-\d{4}-.*$/, '')
+}
+
 function catmullRom(p0: number, p1: number, p2: number, p3: number, t: number): number {
   const t2 = t * t
   const t3 = t2 * t
@@ -29,9 +60,27 @@ interface Normalizer {
   toCanvas: (x: number, y: number) => [number, number]
 }
 
-function buildNormalizer(points: Array<{ x: number; y: number }>, w: number, h: number): Normalizer {
-  const xs = points.map((p) => p.x)
-  const ys = points.map((p) => p.y)
+function buildNormalizer(
+  points: Array<{ x: number; y: number }>,
+  w: number,
+  h: number,
+  deg = 0,
+): Normalizer {
+  // Compute centroid from original points for stable rotation pivot
+  const cx = points.reduce((s, p) => s + p.x, 0) / points.length
+  const cy = points.reduce((s, p) => s + p.y, 0) / points.length
+  const rad = (deg * Math.PI) / 180
+  const cos = Math.cos(rad)
+  const sin = Math.sin(rad)
+
+  // Rotate all points to compute bounding box
+  const rotated = deg === 0 ? points : points.map(({ x, y }) => {
+    const dx = x - cx, dy = y - cy
+    return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos }
+  })
+
+  const xs = rotated.map((p) => p.x)
+  const ys = rotated.map((p) => p.y)
   const minX = Math.min(...xs)
   const maxX = Math.max(...xs)
   const minY = Math.min(...ys)
@@ -47,10 +96,20 @@ function buildNormalizer(points: Array<{ x: number; y: number }>, w: number, h: 
   const offsetY = PADDING + (drawH - (maxY - minY) * scale) / 2
 
   return {
-    toCanvas: (x, y) => [
-      offsetX + (x - minX) * scale,
-      offsetY + (maxY - y) * scale,
-    ],
+    // Accepts raw (unrotated) coordinates — rotation is applied internally.
+    // Both track points and car positions can be passed as-is.
+    toCanvas: (x, y) => {
+      let rx = x, ry = y
+      if (deg !== 0) {
+        const dx = x - cx, dy = y - cy
+        rx = cx + dx * cos - dy * sin
+        ry = cy + dx * sin + dy * cos
+      }
+      return [
+        offsetX + (rx - minX) * scale,
+        offsetY + (maxY - ry) * scale,
+      ]
+    },
   }
 }
 
@@ -62,6 +121,13 @@ export function TrackMap({ raceId, bufferRef, playheadRef, colorMap }: Props) {
   const sizeRef = useRef(size)
   const normRef = useRef<Normalizer | null>(null)
   const colorMapRef = useRef<Record<string, string>>(colorMap)
+
+  const isDebugMode = new URLSearchParams(location.search).has('rotateDebug')
+  const [debugRotation, setDebugRotation] = useState(0)
+
+  const effectiveRotation = isDebugMode
+    ? debugRotation
+    : (CIRCUIT_ROTATION[circuitKey(raceId)] ?? 0)
 
   // ResizeObserver — keep canvas filling its container
   useEffect(() => {
@@ -85,12 +151,17 @@ export function TrackMap({ raceId, bufferRef, playheadRef, colorMap }: Props) {
   // Keep colorMapRef in sync without restarting the rAF loop
   useEffect(() => { colorMapRef.current = colorMap }, [colorMap])
 
-  // Rebuild normalizer when track or canvas size changes
+  // Rebuild normalizer when track, canvas size, or rotation changes
   useEffect(() => {
     if (trackPoints.length > 0) {
-      normRef.current = buildNormalizer(trackPoints, sizeRef.current.w, sizeRef.current.h)
+      normRef.current = buildNormalizer(
+        trackPoints,
+        sizeRef.current.w,
+        sizeRef.current.h,
+        effectiveRotation,
+      )
     }
-  }, [trackPoints, size])
+  }, [trackPoints, size, effectiveRotation])
 
   // Dedicated rAF draw loop — runs at 60fps independent of React renders
   useEffect(() => {
@@ -163,6 +234,7 @@ export function TrackMap({ raceId, bufferRef, playheadRef, colorMap }: Props) {
         const drawX = catmullRom(p0x, p1car.x, p2car.x, p3x, t)
         const drawY = catmullRom(p0y, p1car.y, p2car.y, p3y, t)
 
+        // norm.toCanvas applies the same rotation as the track, keeping cars aligned
         const [cx, cy] = norm.toCanvas(drawX, drawY)
         const color = colorMapRef.current[driverId] ?? driverColor(driverId)
 
@@ -221,6 +293,36 @@ export function TrackMap({ raceId, bufferRef, playheadRef, colorMap }: Props) {
           height={size.h}
           style={{ display: 'block', background: 'var(--color-surface)' }}
         />
+      )}
+      {isDebugMode && (
+        <div style={{
+          position: 'absolute',
+          bottom: 16,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(0,0,0,0.75)',
+          color: '#fff',
+          padding: '8px 14px',
+          borderRadius: 8,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          fontFamily: 'monospace',
+          fontSize: 13,
+          userSelect: 'none',
+        }}>
+          <span>rotateDebug</span>
+          <input
+            type="range"
+            min="-180"
+            max="180"
+            value={debugRotation}
+            onChange={(e) => setDebugRotation(Number(e.target.value))}
+            style={{ width: 180 }}
+          />
+          <span style={{ minWidth: 48, textAlign: 'right' }}>{debugRotation}°</span>
+          <span style={{ color: '#aaa' }}>key: <b style={{ color: '#fff' }}>{circuitKey(raceId)}</b></span>
+        </div>
       )}
     </div>
   )

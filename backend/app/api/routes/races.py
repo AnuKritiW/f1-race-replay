@@ -156,10 +156,12 @@ async def get_driver_colors(race_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.get("/races/{race_id}/track", response_model=list[TrackPoint])
 async def get_track(race_id: str, db: AsyncSession = Depends(get_db)):
-    # Pick one driver to trace the circuit in lap order
+    # Pick the driver with the most valid (non-zero) position data to trace the circuit
     driver_result = await db.execute(
         select(Event.driver_id)
-        .where(Event.race_id == race_id)
+        .where(Event.race_id == race_id, Event.x != 0, Event.y != 0)
+        .group_by(Event.driver_id)
+        .order_by(func.count().desc())
         .limit(1)
     )
     driver = driver_result.scalar_one_or_none()
@@ -213,6 +215,7 @@ async def list_available_sessions(
             year=s.get("year", year),
             date_start=s.get("date_start", ""),
             country_name=s.get("country_name", ""),
+            circuit_short_name=s.get("circuit_short_name", s.get("location", "")),
             ingested=s["session_key"] in ingested,
             race_id=ingested.get(s["session_key"]),
         )

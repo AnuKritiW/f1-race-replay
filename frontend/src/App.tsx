@@ -236,13 +236,15 @@ function App() {
 
   function handleSelect(id: string, session: AvailableSession) {
     scrollYRef.current = window.scrollY
-    window.history.pushState({}, '', `/replay/${id}`)
+    const debug = window.location.search.includes('rotateDebug') ? window.location.search : ''
+    window.history.pushState({}, '', `/replay/${id}${debug}`)
     setRaceId(id)
     setSelectedSession(session)
   }
 
   function handleBack() {
-    window.history.pushState({}, '', '/')
+    const debug = window.location.search.includes('rotateDebug') ? window.location.search : ''
+    window.history.pushState({}, '', `/${debug}`)
     setRaceId(null)
     setSelectedSession(null)
   }
