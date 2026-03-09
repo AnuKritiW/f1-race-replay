@@ -284,7 +284,14 @@ export function TrackMap({ raceId, bufferRef, playheadRef, colorMap }: Props) {
           background: 'linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%)',
           backgroundSize: '200% 100%',
           animation: 'pulse 1.5s infinite',
-        }} />
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <span style={{ fontFamily: 'var(--font-data)', fontSize: '12px', color: 'var(--color-muted)' }}>
+            Loading track…
+          </span>
+        </div>
       ) : (
         <canvas
           ref={canvasRef}

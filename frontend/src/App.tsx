@@ -65,6 +65,7 @@ function AppHeader({
             borderRadius: '4px',
             padding: '4px 10px',
             fontSize: '12px',
+            transition: 'opacity 0.15s',
           }}
           onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.6' }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1' }}
@@ -205,9 +206,13 @@ function Replay({
   if (!timeline) return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       <AppHeader sessionInfo={sessionInfo} onBack={onBack} />
-      <p style={{ padding: '16px', color: 'var(--color-muted)', fontFamily: 'var(--font-data)' }}>
-        Loading race data…
-      </p>
+      <div style={{
+        height: '3px',
+        flexShrink: 0,
+        background: 'linear-gradient(90deg, transparent, var(--color-accent), transparent)',
+        backgroundSize: '200% 100%',
+        animation: 'shimmer 1.2s linear infinite',
+      }} />
     </div>
   )
 

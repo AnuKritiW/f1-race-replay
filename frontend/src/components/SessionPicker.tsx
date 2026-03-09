@@ -106,16 +106,19 @@ function EventCard({ name, sessions, year, ingestProgress, onIngest, onCancel, o
           {year}
         </span>
       </div>
-      {country && (
-        <div style={{
-          fontFamily: 'var(--font-data)',
-          fontSize: '12px',
-          color: 'var(--color-muted)',
-          marginBottom: '12px',
-        }}>
-          {country}
-        </div>
-      )}
+      <div style={{
+        fontFamily: 'var(--font-data)',
+        fontSize: '12px',
+        color: 'var(--color-muted)',
+        marginBottom: '12px',
+        display: 'flex',
+        gap: '8px',
+      }}>
+        {country && <span>{country}</span>}
+        {sessions[0]?.date_start && (
+          <span>{new Date(sessions[0].date_start).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}</span>
+        )}
+      </div>
       <div style={{ height: '1px', background: 'var(--color-border)', marginBottom: '12px' }} />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
         {sessions.map((s) => {
