@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { fetchDriverColors, fetchTimeline } from './api/client'
 import { usePlayback } from './hooks/usePlayback'
 import { TrackMap } from './components/TrackMap'
@@ -10,6 +10,12 @@ import type { AvailableSession, RaceTimeline } from './types'
 
 type Speed = 1 | 5 | 10
 const SPEED_LIST: Speed[] = [1, 5, 10]
+
+// Parse raceId from the current pathname, e.g. /replay/singapore-2023-p1
+function parseRoute(): string | null {
+  const m = window.location.pathname.match(/^\/replay\/(.+)$/)
+  return m ? m[1] : null
+}
 
 function AppHeader({
   sessionInfo,
@@ -226,23 +232,48 @@ function Replay({
 }
 
 function App() {
-  const [raceId, setRaceId] = useState<string | null>(null)
+  // Initialise from URL so a page refresh restores the current session
+  const [raceId, setRaceId] = useState<string | null>(parseRoute)
   const [selectedSession, setSelectedSession] = useState<AvailableSession | null>(null)
 
+  // Lifted so year selection survives navigating to replay and back
+  const [year, setYear] = useState(2024)
+  // Saves the scroll position of the session picker before navigating away
+  const scrollYRef = useRef(0)
+
+  // Handle browser back/forward button
+  useEffect(() => {
+    function onPopState() {
+      setRaceId(parseRoute())
+      setSelectedSession(null)
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
   function handleSelect(id: string, session: AvailableSession) {
+    scrollYRef.current = window.scrollY
+    window.history.pushState({}, '', `/replay/${id}`)
     setRaceId(id)
     setSelectedSession(session)
   }
 
   function handleBack() {
+    window.history.pushState({}, '', '/')
     setRaceId(null)
     setSelectedSession(null)
   }
 
   if (!raceId) {
     return (
-      <div style={{ minHeight: '100vh' }}>
-        <SessionPicker onSelect={handleSelect} />
+      <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+        <AppHeader sessionInfo={null} />
+        <SessionPicker
+          onSelect={handleSelect}
+          year={year}
+          onYearChange={setYear}
+          scrollYRef={scrollYRef}
+        />
       </div>
     )
   }

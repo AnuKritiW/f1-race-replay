@@ -4,6 +4,9 @@ import type { AvailableSession } from '../types'
 
 interface Props {
   onSelect: (raceId: string, session: AvailableSession) => void
+  year: number
+  onYearChange: (y: number) => void
+  scrollYRef: React.RefObject<number>
 }
 
 const YEARS = [2025, 2024, 2023]
@@ -223,13 +226,21 @@ function SessionChip({
   )
 }
 
-export function SessionPicker({ onSelect }: Props) {
-  const [year, setYear] = useState(2024)
+export function SessionPicker({ onSelect, year, onYearChange, scrollYRef }: Props) {
   const [sessions, setSessions] = useState<AvailableSession[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [ingestProgress, setIngestProgress] = useState<Map<number, IngestProgress>>(new Map())
   const pollRefs = useRef<Map<number, ReturnType<typeof setInterval>>>(new Map())
+
+  // Restore scroll position after sessions have loaded (page must be tall enough first)
+  const scrollRestoredRef = useRef(false)
+  useEffect(() => {
+    if (!loading && sessions.length > 0 && !scrollRestoredRef.current) {
+      scrollRestoredRef.current = true
+      window.scrollTo(0, scrollYRef.current)
+    }
+  }, [loading, sessions, scrollYRef])
 
   useEffect(() => {
     setLoading(true)
@@ -328,7 +339,7 @@ export function SessionPicker({ onSelect }: Props) {
           {YEARS.map((y) => (
             <button
               key={y}
-              onClick={() => setYear(y)}
+              onClick={() => onYearChange(y)}
               style={{
                 padding: '6px 16px',
                 border: 'none',
