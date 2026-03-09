@@ -10,7 +10,7 @@ interface Props {
 
 interface DriverEntry {
   id: string
-  speed: number
+  speed: number | null
 }
 
 export function TimingTower({ bufferRef, playheadRef, colorMap }: Props) {
@@ -21,9 +21,9 @@ export function TimingTower({ bufferRef, playheadRef, colorMap }: Props) {
       const state = bufferRef.current.get(Math.floor(playheadRef.current))
       if (!state) return
       const list = Object.entries(state.cars)
-        .filter(([, c]) => c.speed != null)
-        .map(([id, c]) => ({ id, speed: c.speed! }))
-        .sort((a, b) => b.speed - a.speed)
+        .filter(([, c]) => c.x !== 0 || c.y !== 0)
+        .map(([id, c]) => ({ id, speed: c.speed ?? null }))
+        .sort((a, b) => (b.speed ?? -1) - (a.speed ?? -1))
       setDrivers(list)
     }, 200)
     return () => clearInterval(id)
@@ -66,7 +66,7 @@ export function TimingTower({ bufferRef, playheadRef, colorMap }: Props) {
   )
 }
 
-function DriverRow({ id, speed, color }: { id: string; speed: number; color: string }) {
+function DriverRow({ id, speed, color }: { id: string; speed: number | null; color: string }) {
   const [hovered, setHovered] = useState(false)
   return (
     <div
@@ -106,7 +106,7 @@ function DriverRow({ id, speed, color }: { id: string; speed: number; color: str
         minWidth: '3ch',
         textAlign: 'right',
       }}>
-        {Math.round(speed)}
+        {speed != null ? Math.round(speed) : '—'}
       </span>
     </div>
   )
