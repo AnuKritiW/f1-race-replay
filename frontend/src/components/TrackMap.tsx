@@ -122,12 +122,11 @@ export function TrackMap({ raceId, bufferRef, playheadRef, colorMap }: Props) {
   const normRef = useRef<Normalizer | null>(null)
   const colorMapRef = useRef<Record<string, string>>(colorMap)
 
-  const isDebugMode = new URLSearchParams(location.search).has('rotateDebug')
-  const [debugRotation, setDebugRotation] = useState(0)
+  // const isDebugMode = new URLSearchParams(location.search).has('rotateDebug')
+  // const [debugRotation, setDebugRotation] = useState(0)
 
-  const effectiveRotation = isDebugMode
-    ? debugRotation
-    : (CIRCUIT_ROTATION[circuitKey(raceId)] ?? 0)
+  const effectiveRotation = CIRCUIT_ROTATION[circuitKey(raceId)] ?? 0
+  // const effectiveRotation = isDebugMode ? debugRotation : (CIRCUIT_ROTATION[circuitKey(raceId)] ?? 0)
 
   // ResizeObserver — keep canvas filling its container
   useEffect(() => {
@@ -294,6 +293,7 @@ export function TrackMap({ raceId, bufferRef, playheadRef, colorMap }: Props) {
           style={{ display: 'block', background: 'var(--color-surface)' }}
         />
       )}
+      {/* rotateDebug slider — uncomment to re-enable
       {isDebugMode && (
         <div style={{
           position: 'absolute',
@@ -324,6 +324,7 @@ export function TrackMap({ raceId, bufferRef, playheadRef, colorMap }: Props) {
           <span style={{ color: '#aaa' }}>key: <b style={{ color: '#fff' }}>{circuitKey(raceId)}</b></span>
         </div>
       )}
+      */}
     </div>
   )
 }
