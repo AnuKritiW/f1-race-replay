@@ -5,36 +5,191 @@ import { TrackMap } from './components/TrackMap'
 import { PlaybackControls } from './components/PlaybackControls'
 import { Scrubber } from './components/Scrubber'
 import { SessionPicker } from './components/SessionPicker'
-import type { RaceTimeline } from './types'
+import { TimingTower } from './components/TimingTower'
+import type { AvailableSession, RaceTimeline } from './types'
 
-function ReplayPlayer({ raceId, timeline }: { raceId: string; timeline: RaceTimeline }) {
+type Speed = 1 | 5 | 10
+const SPEED_LIST: Speed[] = [1, 5, 10]
+
+function AppHeader({
+  sessionInfo,
+  onBack,
+}: {
+  sessionInfo: AvailableSession | null
+  onBack?: () => void
+}) {
+  return (
+    <header style={{
+      height: '48px',
+      flexShrink: 0,
+      background: 'var(--color-surface)',
+      borderBottom: '1px solid var(--color-border)',
+      borderLeft: '3px solid var(--color-accent)',
+      display: 'flex',
+      alignItems: 'center',
+      padding: '0 16px',
+      gap: '16px',
+    }}>
+      <span style={{
+        fontFamily: 'var(--font-data)',
+        fontWeight: 600,
+        fontSize: '18px',
+        color: 'var(--color-accent)',
+        letterSpacing: '1px',
+      }}>
+        F1 REPLAY
+      </span>
+      {sessionInfo && (
+        <span style={{
+          fontFamily: 'var(--font-data)',
+          color: 'var(--color-muted)',
+          fontSize: '15px',
+        }}>
+          {sessionInfo.event_name} · {sessionInfo.session_name}
+        </span>
+      )}
+      {onBack && (
+        <button
+          onClick={onBack}
+          style={{
+            marginLeft: 'auto',
+            background: 'transparent',
+            border: '1px solid var(--color-border)',
+            color: 'var(--color-muted)',
+            borderRadius: '4px',
+            padding: '4px 10px',
+            fontSize: '12px',
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.6' }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1' }}
+        >
+          ← Sessions
+        </button>
+      )}
+      <span style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        fontSize: '12px',
+        color: 'var(--color-muted)',
+        marginLeft: onBack ? '0' : 'auto',
+      }}>
+        <span style={{
+          width: '6px',
+          height: '6px',
+          borderRadius: '50%',
+          background: 'var(--color-accent)',
+          display: 'inline-block',
+          animation: 'livePulse 2s ease-in-out infinite',
+        }} />
+        LIVE
+      </span>
+    </header>
+  )
+}
+
+function ReplayPlayer({
+  raceId,
+  timeline,
+  sessionInfo,
+  onBack,
+}: {
+  raceId: string
+  timeline: RaceTimeline
+  sessionInfo: AvailableSession | null
+  onBack: () => void
+}) {
   const { bufferRef, playheadRef, playheadTime, isLoaded, isPlaying, speed, play, pause, setSpeed, scrubTo } =
     usePlayback(raceId, timeline)
 
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.target instanceof HTMLInputElement) return
+      if (e.code === 'Space') {
+        e.preventDefault()
+        isPlaying ? pause() : play()
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault()
+        scrubTo(playheadTime - 10)
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault()
+        scrubTo(playheadTime + 10)
+      } else if (e.key === '[') {
+        const i = SPEED_LIST.indexOf(speed)
+        if (i > 0) setSpeed(SPEED_LIST[i - 1])
+      } else if (e.key === ']') {
+        const i = SPEED_LIST.indexOf(speed)
+        if (i < SPEED_LIST.length - 1) setSpeed(SPEED_LIST[i + 1])
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isPlaying, play, pause, scrubTo, setSpeed, speed, playheadTime])
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '16px' }}>
-      <h1 style={{ margin: 0 }}>F1 Race Replay — {raceId}</h1>
-      {!isLoaded && <p style={{ margin: 0, fontFamily: 'monospace', color: '#888' }}>Buffering…</p>}
-      <TrackMap raceId={raceId} bufferRef={bufferRef} playheadRef={playheadRef} />
-      <Scrubber
-        timeline={timeline}
-        playheadTime={playheadTime}
-        isPlaying={isPlaying}
-        onScrub={scrubTo}
-        onPlay={play}
-      />
-      <PlaybackControls
-        isPlaying={isPlaying}
-        speed={speed}
-        onPlay={play}
-        onPause={pause}
-        onSetSpeed={setSpeed}
-      />
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+      <AppHeader sessionInfo={sessionInfo} onBack={onBack} />
+      {!isLoaded && (
+        <div style={{
+          height: '3px',
+          flexShrink: 0,
+          background: 'linear-gradient(90deg, transparent, var(--color-accent), transparent)',
+          backgroundSize: '200% 100%',
+          animation: 'shimmer 1.2s linear infinite',
+        }} />
+      )}
+      <main style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        <aside style={{
+          width: '280px',
+          flexShrink: 0,
+          borderRight: '1px solid var(--color-border)',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+        }}>
+          <TimingTower bufferRef={bufferRef} playheadRef={playheadRef} />
+        </aside>
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          <TrackMap raceId={raceId} bufferRef={bufferRef} playheadRef={playheadRef} />
+        </div>
+      </main>
+      <footer style={{
+        background: 'var(--color-surface)',
+        borderTop: '1px solid var(--color-border)',
+        padding: '8px 16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '4px',
+        flexShrink: 0,
+      }}>
+        <Scrubber
+          timeline={timeline}
+          playheadTime={playheadTime}
+          isPlaying={isPlaying}
+          onScrub={scrubTo}
+          onPlay={play}
+        />
+        <PlaybackControls
+          isPlaying={isPlaying}
+          speed={speed}
+          onPlay={play}
+          onPause={pause}
+          onSetSpeed={setSpeed}
+        />
+      </footer>
     </div>
   )
 }
 
-function Replay({ raceId }: { raceId: string }) {
+function Replay({
+  raceId,
+  sessionInfo,
+  onBack,
+}: {
+  raceId: string
+  sessionInfo: AvailableSession | null
+  onBack: () => void
+}) {
   const [timeline, setTimeline] = useState<RaceTimeline | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -43,24 +198,51 @@ function Replay({ raceId }: { raceId: string }) {
     setError(null)
     fetchTimeline(raceId)
       .then(setTimeline)
-      .catch((e) => setError(e.message))
+      .catch((e: Error) => setError(e.message))
   }, [raceId])
 
-  if (error) return <p style={{ color: '#f55' }}>Error loading race: {error}</p>
-  if (!timeline) return <p style={{ fontFamily: 'monospace', color: '#888' }}>Loading race data…</p>
+  if (error) return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+      <AppHeader sessionInfo={sessionInfo} onBack={onBack} />
+      <p style={{ color: '#f55', padding: '16px' }}>Error loading race: {error}</p>
+    </div>
+  )
 
-  return <ReplayPlayer raceId={raceId} timeline={timeline} />
+  if (!timeline) return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+      <AppHeader sessionInfo={sessionInfo} onBack={onBack} />
+      <p style={{ padding: '16px', color: 'var(--color-muted)', fontFamily: 'var(--font-data)' }}>
+        Loading race data…
+      </p>
+    </div>
+  )
+
+  return <ReplayPlayer raceId={raceId} timeline={timeline} sessionInfo={sessionInfo} onBack={onBack} />
 }
 
 function App() {
   const [raceId, setRaceId] = useState<string | null>(null)
+  const [selectedSession, setSelectedSession] = useState<AvailableSession | null>(null)
 
-  return (
-    <div>
-      <SessionPicker onSelect={setRaceId} />
-      {raceId && <Replay raceId={raceId} />}
-    </div>
-  )
+  function handleSelect(id: string, session: AvailableSession) {
+    setRaceId(id)
+    setSelectedSession(session)
+  }
+
+  function handleBack() {
+    setRaceId(null)
+    setSelectedSession(null)
+  }
+
+  if (!raceId) {
+    return (
+      <div style={{ minHeight: '100vh' }}>
+        <SessionPicker onSelect={handleSelect} />
+      </div>
+    )
+  }
+
+  return <Replay raceId={raceId} sessionInfo={selectedSession} onBack={handleBack} />
 }
 
 export default App

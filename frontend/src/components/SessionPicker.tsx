@@ -3,7 +3,7 @@ import { cancelIngest, fetchAvailableSessions, fetchIngestProgress, postIngest }
 import type { AvailableSession } from '../types'
 
 interface Props {
-  onSelect: (raceId: string) => void
+  onSelect: (raceId: string, session: AvailableSession) => void
 }
 
 const YEARS = [2025, 2024, 2023]
@@ -58,6 +58,170 @@ function ProgressRing({ done, total }: { done: number; total: number }) {
 }
 
 type IngestProgress = { done: number; total: number; raceId: string }
+
+interface EventCardProps {
+  name: string
+  sessions: AvailableSession[]
+  year: number
+  ingestProgress: Map<number, IngestProgress>
+  onIngest: (session: AvailableSession) => void
+  onCancel: (sessionKey: number, raceId: string) => void
+  onSelect: (raceId: string, session: AvailableSession) => void
+}
+
+function EventCard({ name, sessions, year, ingestProgress, onIngest, onCancel, onSelect }: EventCardProps) {
+  const country = sessions[0]?.country_name ?? ''
+
+  return (
+    <div style={{
+      background: 'var(--color-surface)',
+      border: '1px solid var(--color-border)',
+      borderRadius: '8px',
+      padding: '16px',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+        <span style={{
+          fontFamily: 'var(--font-data)',
+          fontSize: '15px',
+          fontWeight: 600,
+          color: 'var(--color-text)',
+          lineHeight: 1.3,
+        }}>
+          {name}
+        </span>
+        <span style={{
+          fontFamily: 'var(--font-data)',
+          fontSize: '12px',
+          color: 'var(--color-muted)',
+          background: 'rgba(255,255,255,0.06)',
+          padding: '2px 6px',
+          borderRadius: '3px',
+          flexShrink: 0,
+          marginLeft: '8px',
+        }}>
+          {year}
+        </span>
+      </div>
+      {country && (
+        <div style={{
+          fontFamily: 'var(--font-data)',
+          fontSize: '12px',
+          color: 'var(--color-muted)',
+          marginBottom: '12px',
+        }}>
+          {country}
+        </div>
+      )}
+      <div style={{ height: '1px', background: 'var(--color-border)', marginBottom: '12px' }} />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+        {sessions.map((s) => {
+          const progress = ingestProgress.get(s.session_key)
+          const isIngesting = !!progress
+
+          if (isIngesting) {
+            return (
+              <div
+                key={s.session_key}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '4px 6px 4px 10px',
+                  background: 'transparent',
+                  border: '1px solid #555',
+                  borderRadius: '4px',
+                  fontSize: '13px',
+                  fontFamily: 'var(--font-data)',
+                  color: 'var(--color-muted)',
+                }}
+              >
+                <span>{s.session_name}</span>
+                <ProgressRing done={progress.done} total={progress.total} />
+                <button
+                  onClick={() => onCancel(s.session_key, progress.raceId)}
+                  title="Cancel ingest"
+                  style={{
+                    background: 'none', border: 'none', color: '#f55',
+                    cursor: 'pointer', padding: '0 2px', fontSize: '13px',
+                    lineHeight: 1,
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            )
+          }
+
+          if (s.ingested && s.race_id) {
+            return (
+              <SessionChip
+                key={s.session_key}
+                label={s.session_name}
+                variant="ingested"
+                onClick={() => onSelect(s.race_id!, s)}
+              />
+            )
+          }
+
+          return (
+            <SessionChip
+              key={s.session_key}
+              label={`${s.session_name} ↓`}
+              variant="available"
+              onClick={() => onIngest(s)}
+            />
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function SessionChip({
+  label,
+  variant,
+  onClick,
+}: {
+  label: string
+  variant: 'ingested' | 'available'
+  onClick: () => void
+}) {
+  const [hovered, setHovered] = useState(false)
+
+  const base: React.CSSProperties = {
+    height: '28px',
+    padding: '4px 10px',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '13px',
+    fontFamily: 'var(--font-data)',
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease',
+  }
+
+  const ingested: React.CSSProperties = {
+    background: 'rgba(16,185,129,0.15)',
+    border: '1px solid #10b981',
+    color: '#10b981',
+  }
+
+  const available: React.CSSProperties = {
+    background: 'transparent',
+    border: `1px solid ${hovered ? 'var(--color-accent)' : '#444'}`,
+    color: hovered ? 'var(--color-text)' : 'var(--color-muted)',
+  }
+
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{ ...base, ...(variant === 'ingested' ? ingested : available) }}
+    >
+      {label}
+    </button>
+  )
+}
 
 export function SessionPicker({ onSelect }: Props) {
   const [year, setYear] = useState(2024)
@@ -148,108 +312,85 @@ export function SessionPicker({ onSelect }: Props) {
   const grouped = groupByEvent(sessions)
 
   return (
-    <div style={{ padding: '16px', maxWidth: '700px' }}>
-      <h2 style={{ margin: '0 0 12px' }}>Select a Session</h2>
-
-      <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <label style={{ fontWeight: 'bold' }}>Year:</label>
-        {YEARS.map((y) => (
-          <button
-            key={y}
-            onClick={() => setYear(y)}
-            style={{
-              padding: '4px 12px',
-              cursor: 'pointer',
-              fontWeight: year === y ? 'bold' : 'normal',
-              background: year === y ? '#e10600' : '#333',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '4px',
-            }}
-          >
-            {y}
-          </button>
-        ))}
+    <div style={{ padding: '32px', minHeight: '100vh' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <h1 style={{
+          fontFamily: 'var(--font-data)',
+          fontSize: '28px',
+          fontWeight: 600,
+          letterSpacing: '2px',
+          margin: 0,
+          color: 'var(--color-text)',
+        }}>
+          SELECT SESSION
+        </h1>
+        <div style={{ display: 'flex', gap: '4px' }}>
+          {YEARS.map((y) => (
+            <button
+              key={y}
+              onClick={() => setYear(y)}
+              style={{
+                padding: '6px 16px',
+                border: 'none',
+                borderRadius: '4px',
+                background: year === y ? 'var(--color-accent)' : 'transparent',
+                color: year === y ? '#fff' : 'var(--color-muted)',
+                fontFamily: 'var(--font-data)',
+                fontSize: '15px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {y}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {loading && <p style={{ color: '#888', fontFamily: 'monospace' }}>Loading sessions…</p>}
-      {error && <p style={{ color: '#f55' }}>Error: {error}</p>}
-
-      {!loading && !error && sessions.length === 0 && (
-        <p style={{ color: '#888' }}>No sessions found for {year}.</p>
+      {error && (
+        <div style={{
+          borderLeft: '3px solid var(--color-accent)',
+          padding: '10px 14px',
+          background: 'rgba(225,6,0,0.08)',
+          borderRadius: '4px',
+          color: '#f88',
+          fontSize: '14px',
+          marginBottom: '16px',
+        }}>
+          {error}
+        </div>
       )}
 
-      {Array.from(grouped.entries()).map(([eventName, eventSessions]) => (
-        <div key={eventName} style={{ marginBottom: '16px' }}>
-          <h3 style={{ margin: '0 0 6px', fontSize: '14px', color: '#aaa', textTransform: 'uppercase' }}>
-            {eventName}
-          </h3>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-            {eventSessions.map((s) => {
-              const progress = ingestProgress.get(s.session_key)
-              const isIngesting = !!progress
+      {!loading && !error && sessions.length === 0 && (
+        <p style={{ color: 'var(--color-muted)' }}>No sessions found for {year}.</p>
+      )}
 
-              if (isIngesting) {
-                return (
-                  <div
-                    key={s.session_key}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: '6px',
-                      padding: '5px 6px 5px 12px',
-                      background: '#2a2a2a', border: '1px solid #555',
-                      borderRadius: '4px', fontSize: '13px', color: '#aaa',
-                    }}
-                  >
-                    <span>{s.session_name}</span>
-                    <ProgressRing done={progress.done} total={progress.total} />
-                    <button
-                      onClick={() => handleCancel(s.session_key, progress.raceId)}
-                      title="Cancel ingest"
-                      style={{
-                        background: 'none', border: 'none', color: '#f55',
-                        cursor: 'pointer', padding: '0 2px', fontSize: '13px',
-                        lineHeight: 1,
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                )
-              }
-
-              if (s.ingested && s.race_id) {
-                return (
-                  <button
-                    key={s.session_key}
-                    onClick={() => onSelect(s.race_id!)}
-                    style={{
-                      padding: '6px 14px', cursor: 'pointer',
-                      background: '#1a6e1a', color: '#fff',
-                      border: '1px solid #2a9e2a', borderRadius: '4px', fontSize: '13px',
-                    }}
-                  >
-                    {s.session_name}
-                  </button>
-                )
-              }
-
-              return (
-                <button
-                  key={s.session_key}
-                  onClick={() => handleIngest(s)}
-                  style={{
-                    padding: '6px 14px', cursor: 'pointer',
-                    background: '#333', color: '#ccc',
-                    border: '1px solid #555', borderRadius: '4px', fontSize: '13px',
-                  }}
-                >
-                  {s.session_name} ↓
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      ))}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+        {loading
+          ? Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} style={{
+                height: '140px',
+                borderRadius: '8px',
+                background: 'linear-gradient(90deg, var(--color-surface) 25%, var(--color-border) 50%, var(--color-surface) 75%)',
+                backgroundSize: '200% 100%',
+                animation: 'pulse 1.5s infinite',
+                animationDelay: `${i * 0.15}s`,
+              }} />
+            ))
+          : Array.from(grouped.entries()).map(([eventName, eventSessions]) => (
+              <EventCard
+                key={eventName}
+                name={eventName}
+                sessions={eventSessions}
+                year={year}
+                ingestProgress={ingestProgress}
+                onIngest={handleIngest}
+                onCancel={handleCancel}
+                onSelect={onSelect}
+              />
+            ))
+        }
+      </div>
     </div>
   )
 }
