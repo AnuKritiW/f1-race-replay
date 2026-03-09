@@ -72,24 +72,7 @@ function AppHeader({
           ← Sessions
         </button>
       )}
-      <span style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '6px',
-        fontSize: '12px',
-        color: 'var(--color-muted)',
-        marginLeft: onBack ? '0' : 'auto',
-      }}>
-        <span style={{
-          width: '6px',
-          height: '6px',
-          borderRadius: '50%',
-          background: 'var(--color-accent)',
-          display: 'inline-block',
-          animation: 'livePulse 2s ease-in-out infinite',
-        }} />
-        LIVE
-      </span>
+      {/* LIVE indicator — reserved for future live data feature */}
     </header>
   )
 }
