@@ -48,6 +48,7 @@ class AvailableSession(BaseModel):
     year: int
     date_start: str
     country_name: str
+    circuit_short_name: str
     ingested: bool
     race_id: str | None = None
 

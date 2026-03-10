@@ -19,10 +19,13 @@ export function Scrubber({ timeline, playheadTime, isPlaying, onScrub, onPlay }:
   const wasPlayingRef = useRef(false)
 
   const relativeSeconds = playheadTime - timeline.start_time
+  const pct = timeline.duration > 0
+    ? ((playheadTime - timeline.start_time) / timeline.duration) * 100
+    : 0
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-      <span style={{ fontFamily: 'monospace', minWidth: '5ch' }}>
+      <span style={{ fontFamily: 'var(--font-data)', minWidth: '5ch', fontSize: '14px' }}>
         {formatRaceTime(relativeSeconds)}
       </span>
       <input
@@ -36,8 +39,17 @@ export function Scrubber({ timeline, playheadTime, isPlaying, onScrub, onPlay }:
         onChange={(e) => onScrub(Number(e.target.value))}
         onMouseUp={() => { if (wasPlayingRef.current) onPlay() }}
         onTouchEnd={() => { if (wasPlayingRef.current) onPlay() }}
-        style={{ flex: 1 }}
+        style={{ flex: 1, '--range-pct': `${pct}%` } as React.CSSProperties}
       />
+      <span style={{
+        fontFamily: 'var(--font-data)',
+        minWidth: '5ch',
+        fontSize: '14px',
+        color: 'var(--color-muted)',
+        textAlign: 'right',
+      }}>
+        {formatRaceTime(timeline.duration)}
+      </span>
     </div>
   )
 }

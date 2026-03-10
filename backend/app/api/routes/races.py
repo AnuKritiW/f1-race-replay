@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import Response
 import json
-from sqlalchemy import select, func
+from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
@@ -136,12 +136,32 @@ async def get_live(race_id: str, db: AsyncSession = Depends(get_db)):
     return RaceState(timestamp=snapshot.timestamp, cars=cars)
 
 
+@router.get("/races/{race_id}/drivers")
+async def get_driver_colors(race_id: str, db: AsyncSession = Depends(get_db)):
+    """Return {acronym: '#rrggbb'} for every driver in this session, sourced from OpenF1."""
+    result = await db.execute(
+        select(RaceSession.session_key).where(RaceSession.race_id == race_id)
+    )
+    session_key = result.scalar_one_or_none()
+    if session_key is None:
+        raise HTTPException(status_code=404, detail=f"Race '{race_id}' not found")
+
+    drivers = await _get(f"{BASE_URL}/drivers", {"session_key": session_key})
+    return {
+        d["name_acronym"]: f"#{d['team_colour']}"
+        for d in drivers
+        if d.get("name_acronym") and d.get("team_colour")
+    }
+
+
 @router.get("/races/{race_id}/track", response_model=list[TrackPoint])
 async def get_track(race_id: str, db: AsyncSession = Depends(get_db)):
-    # Pick one driver to trace the circuit in lap order
+    # Pick the driver with the most valid (non-zero) position data to trace the circuit
     driver_result = await db.execute(
         select(Event.driver_id)
-        .where(Event.race_id == race_id)
+        .where(Event.race_id == race_id, Event.x != 0, Event.y != 0)
+        .group_by(Event.driver_id)
+        .order_by(func.count().desc())
         .limit(1)
     )
     driver = driver_result.scalar_one_or_none()
@@ -195,6 +215,7 @@ async def list_available_sessions(
             year=s.get("year", year),
             date_start=s.get("date_start", ""),
             country_name=s.get("country_name", ""),
+            circuit_short_name=s.get("circuit_short_name", s.get("location", "")),
             ingested=s["session_key"] in ingested,
             race_id=ingested.get(s["session_key"]),
         )
@@ -269,6 +290,16 @@ async def ingest_session(
     return {"race_id": body.race_id, "status": "ingesting"}
 
 
+@router.get("/admin/sessions/ingest/active")
+async def get_active_ingests():
+    """Return all currently running ingestions as {race_id: {done, total}}."""
+    return {
+        race_id: {"done": state["done"], "total": state["total"]}
+        for race_id, state in _ingest_state.items()
+        if state["status"] == "running"
+    }
+
+
 @router.get("/admin/sessions/{race_id}/progress")
 async def get_ingest_progress(race_id: str):
     state = _ingest_state.get(race_id)
@@ -284,6 +315,24 @@ async def cancel_ingest(race_id: str):
         raise HTTPException(status_code=404, detail="No active ingest for this race_id")
     _ingest_state[race_id]["status"] = "cancelled"
     return {"race_id": race_id, "status": "cancelled"}
+
+
+@router.delete("/admin/sessions/{race_id}", status_code=200)
+async def delete_session(race_id: str, db: AsyncSession = Depends(get_db)):
+    """Delete all ingested data for a session."""
+    existing = await db.execute(select(RaceSession).where(RaceSession.race_id == race_id))
+    if existing.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail=f"No ingested session '{race_id}'")
+
+    await db.execute(delete(Event).where(Event.race_id == race_id))
+    await db.execute(delete(Snapshot).where(Snapshot.race_id == race_id))
+    await db.execute(delete(RaceSession).where(RaceSession.race_id == race_id))
+    await db.commit()
+
+    _bulk_states_cache.pop(race_id, None)
+    _ingest_state.pop(race_id, None)
+
+    return {"race_id": race_id, "status": "deleted"}
 
 
 @router.post("/admin/races/{race_id}/ingest", response_model=IngestResponse)

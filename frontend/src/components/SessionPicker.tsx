@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
-import { cancelIngest, fetchAvailableSessions, fetchIngestProgress, postIngest } from '../api/client'
+import { cancelIngest, deleteSession, fetchActiveIngests, fetchAvailableSessions, fetchIngestProgress, postIngest } from '../api/client'
 import type { AvailableSession } from '../types'
 
 interface Props {
-  onSelect: (raceId: string) => void
+  onSelect: (raceId: string, session: AvailableSession) => void
+  year: number
+  onYearChange: (y: number) => void
+  scrollYRef: React.RefObject<number>
 }
 
 const YEARS = [2025, 2024, 2023]
 
 function generateRaceId(session: AvailableSession): string {
-  const country = session.country_name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+  const country = (session.circuit_short_name || session.country_name).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
   const year = session.year
   const nameMap: Record<string, string> = {
     'Practice 1': 'p1',
@@ -28,7 +31,7 @@ function generateRaceId(session: AvailableSession): string {
 function groupByEvent(sessions: AvailableSession[]): Map<string, AvailableSession[]> {
   const map = new Map<string, AvailableSession[]>()
   for (const s of sessions) {
-    const key = s.event_name || s.country_name
+    const key = s.circuit_short_name || s.event_name || s.country_name
     const arr = map.get(key) ?? []
     arr.push(s)
     map.set(key, arr)
@@ -59,21 +62,266 @@ function ProgressRing({ done, total }: { done: number; total: number }) {
 
 type IngestProgress = { done: number; total: number; raceId: string }
 
-export function SessionPicker({ onSelect }: Props) {
-  const [year, setYear] = useState(2024)
+interface EventCardProps {
+  name: string
+  sessions: AvailableSession[]
+  year: number
+  ingestProgress: Map<number, IngestProgress>
+  failedIngests: Map<number, string>
+  onIngest: (session: AvailableSession) => void
+  onRetry: (session: AvailableSession) => void
+  onCancel: (sessionKey: number, raceId: string) => void
+  onDelete: (sessionKey: number, raceId: string) => void
+  onSelect: (raceId: string, session: AvailableSession) => void
+}
+
+function EventCard({ name, sessions, year, ingestProgress, failedIngests, onIngest, onRetry, onCancel, onDelete, onSelect }: EventCardProps) {
+  const country = sessions[0]?.country_name ?? ''
+
+  return (
+    <div style={{
+      background: 'var(--color-surface)',
+      border: '1px solid var(--color-border)',
+      borderRadius: '8px',
+      padding: '16px',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+        <span style={{
+          fontFamily: 'var(--font-data)',
+          fontSize: '15px',
+          fontWeight: 600,
+          color: 'var(--color-text)',
+          lineHeight: 1.3,
+        }}>
+          {name}
+        </span>
+        <span style={{
+          fontFamily: 'var(--font-data)',
+          fontSize: '12px',
+          color: 'var(--color-muted)',
+          background: 'rgba(255,255,255,0.06)',
+          padding: '2px 6px',
+          borderRadius: '3px',
+          flexShrink: 0,
+          marginLeft: '8px',
+        }}>
+          {year}
+        </span>
+      </div>
+      <div style={{
+        fontFamily: 'var(--font-data)',
+        fontSize: '12px',
+        color: 'var(--color-muted)',
+        marginBottom: '12px',
+        display: 'flex',
+        gap: '8px',
+      }}>
+        {country && <span>{country}</span>}
+        {sessions[0]?.date_start && (
+          <span>{new Date(sessions[0].date_start).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}</span>
+        )}
+      </div>
+      <div style={{ height: '1px', background: 'var(--color-border)', marginBottom: '12px' }} />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+        {sessions.map((s) => {
+          const progress = ingestProgress.get(s.session_key)
+          const isIngesting = !!progress
+          const isFailed = failedIngests.has(s.session_key)
+
+          if (isFailed) {
+            return (
+              <SessionChip
+                key={s.session_key}
+                label={`${s.session_name} ⟳`}
+                variant="failed"
+                onClick={() => onRetry(s)}
+              />
+            )
+          }
+
+          if (isIngesting) {
+            return (
+              <div
+                key={s.session_key}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '4px 6px 4px 10px',
+                  background: 'transparent',
+                  border: '1px solid #555',
+                  borderRadius: '4px',
+                  fontSize: '13px',
+                  fontFamily: 'var(--font-data)',
+                  color: 'var(--color-muted)',
+                }}
+              >
+                <span>{s.session_name}</span>
+                <ProgressRing done={progress.done} total={progress.total} />
+                <button
+                  onClick={() => onCancel(s.session_key, progress.raceId)}
+                  title="Cancel ingest"
+                  style={{
+                    background: 'none', border: 'none', color: '#f55',
+                    cursor: 'pointer', padding: '0 2px', fontSize: '13px',
+                    lineHeight: 1,
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            )
+          }
+
+          if (s.ingested && s.race_id) {
+            return (
+              <IngestedChip
+                key={s.session_key}
+                label={s.session_name}
+                onClick={() => onSelect(s.race_id!, s)}
+                onDelete={() => onDelete(s.session_key, s.race_id!)}
+              />
+            )
+          }
+
+          return (
+            <SessionChip
+              key={s.session_key}
+              label={`${s.session_name} ↓`}
+              variant="available"
+              onClick={() => onIngest(s)}
+            />
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function IngestedChip({ label, onClick, onDelete }: { label: string; onClick: () => void; onDelete: () => void }) {
+  const [hovered, setHovered] = useState(false)
+  return (
+    <div
+      style={{ position: 'relative', display: 'inline-flex' }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <SessionChip label={label} variant="ingested" onClick={onClick} />
+      <button
+        onClick={(e) => { e.stopPropagation(); onDelete() }}
+        title="Remove session data"
+        style={{
+          position: 'absolute', right: '-6px', top: '-6px',
+          width: '16px', height: '16px',
+          background: '#333', border: '1px solid #555', borderRadius: '50%',
+          color: '#aaa', cursor: 'pointer', fontSize: '9px',
+          display: hovered ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center',
+          padding: 0,
+        }}
+      >✕</button>
+    </div>
+  )
+}
+
+function SessionChip({
+  label,
+  variant,
+  onClick,
+}: {
+  label: string
+  variant: 'ingested' | 'available' | 'failed'
+  onClick: () => void
+}) {
+  const [hovered, setHovered] = useState(false)
+
+  const base: React.CSSProperties = {
+    height: '28px',
+    padding: '4px 10px',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '13px',
+    fontFamily: 'var(--font-data)',
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease',
+  }
+
+  const ingested: React.CSSProperties = {
+    background: 'rgba(16,185,129,0.15)',
+    border: '1px solid #10b981',
+    color: '#10b981',
+  }
+
+  const available: React.CSSProperties = {
+    background: 'transparent',
+    border: `1px solid ${hovered ? 'var(--color-accent)' : '#444'}`,
+    color: hovered ? 'var(--color-text)' : 'var(--color-muted)',
+  }
+
+  const failed: React.CSSProperties = {
+    background: 'rgba(255,85,85,0.08)',
+    border: '1px solid #f55',
+    color: '#f88',
+  }
+
+  const variantStyle = variant === 'ingested' ? ingested : variant === 'failed' ? failed : available
+
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{ ...base, ...variantStyle }}
+    >
+      {label}
+    </button>
+  )
+}
+
+export function SessionPicker({ onSelect, year, onYearChange, scrollYRef }: Props) {
   const [sessions, setSessions] = useState<AvailableSession[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [ingestProgress, setIngestProgress] = useState<Map<number, IngestProgress>>(new Map())
+  const [failedIngests, setFailedIngests] = useState<Map<number, string>>(new Map()) // sessionKey → raceId
   const pollRefs = useRef<Map<number, ReturnType<typeof setInterval>>>(new Map())
 
+  // Restore scroll position after sessions have loaded (page must be tall enough first)
+  const scrollRestoredRef = useRef(false)
   useEffect(() => {
+    if (!loading && sessions.length > 0 && !scrollRestoredRef.current) {
+      scrollRestoredRef.current = true
+      window.scrollTo(0, scrollYRef.current)
+    }
+  }, [loading, sessions, scrollYRef])
+
+  useEffect(() => {
+    let ignore = false
     setLoading(true)
     setError(null)
+    setSessions([])
     fetchAvailableSessions(year)
-      .then(setSessions)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
+      .then((data) => {
+        if (ignore) return
+        setSessions(data)
+        // Best-effort: restore progress rings for any ingestions still running on the server
+        fetchActiveIngests().then((active) => {
+          if (ignore || Object.keys(active).length === 0) return
+          const toRestore: Array<[number, IngestProgress]> = []
+          data.forEach((s) => {
+            const raceId = generateRaceId(s)
+            if (active[raceId] && !pollRefs.current.has(s.session_key)) {
+              toRestore.push([s.session_key, { done: active[raceId].done, total: active[raceId].total, raceId }])
+            }
+          })
+          if (toRestore.length > 0) {
+            setIngestProgress(new Map(toRestore))
+            toRestore.forEach(([sessionKey, { raceId }]) => startProgressPoll(sessionKey, raceId))
+          }
+        }).catch(() => {}) // best-effort — never block the session list on this
+      })
+      .catch((e) => { if (!ignore) setError(e.message) })
+      .finally(() => { if (!ignore) setLoading(false) })
+    return () => { ignore = true }
   }, [year])
 
   function stopPoll(sessionKey: number) {
@@ -102,7 +350,11 @@ export function SessionPicker({ onSelect }: Props) {
             )
           )
           setIngestProgress((prev) => { const next = new Map(prev); next.delete(sessionKey); return next })
-        } else if (prog.status === 'cancelled' || prog.status === 'error') {
+        } else if (prog.status === 'error') {
+          stopPoll(sessionKey)
+          setIngestProgress((prev) => { const next = new Map(prev); next.delete(sessionKey); return next })
+          setFailedIngests((prev) => new Map(prev).set(sessionKey, raceId))
+        } else if (prog.status === 'cancelled') {
           stopPoll(sessionKey)
           setIngestProgress((prev) => { const next = new Map(prev); next.delete(sessionKey); return next })
         }
@@ -123,12 +375,29 @@ export function SessionPicker({ onSelect }: Props) {
       const msg = e instanceof Error ? e.message : String(e)
       if (!msg.includes('409')) {
         setIngestProgress((prev) => { const next = new Map(prev); next.delete(session.session_key); return next })
-        setError(`Ingest failed: ${msg}`)
+        setFailedIngests((prev) => new Map(prev).set(session.session_key, raceId))
         return
       }
     }
 
     startProgressPoll(session.session_key, raceId)
+  }
+
+  async function handleDelete(sessionKey: number, raceId: string) {
+    if (!confirm(`Remove all data for ${raceId}? This cannot be undone.`)) return
+    try {
+      await deleteSession(raceId)
+      setSessions((prev) =>
+        prev.map((s) => s.session_key === sessionKey ? { ...s, ingested: false, race_id: null } : s)
+      )
+    } catch (e: unknown) {
+      setError(`Delete failed: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  function handleRetry(session: AvailableSession) {
+    setFailedIngests((prev) => { const next = new Map(prev); next.delete(session.session_key); return next })
+    handleIngest(session)
   }
 
   async function handleCancel(sessionKey: number, raceId: string) {
@@ -148,108 +417,88 @@ export function SessionPicker({ onSelect }: Props) {
   const grouped = groupByEvent(sessions)
 
   return (
-    <div style={{ padding: '16px', maxWidth: '700px' }}>
-      <h2 style={{ margin: '0 0 12px' }}>Select a Session</h2>
-
-      <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <label style={{ fontWeight: 'bold' }}>Year:</label>
-        {YEARS.map((y) => (
-          <button
-            key={y}
-            onClick={() => setYear(y)}
-            style={{
-              padding: '4px 12px',
-              cursor: 'pointer',
-              fontWeight: year === y ? 'bold' : 'normal',
-              background: year === y ? '#e10600' : '#333',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '4px',
-            }}
-          >
-            {y}
-          </button>
-        ))}
+    <div style={{ padding: '32px', minHeight: '100vh' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <h1 style={{
+          fontFamily: 'var(--font-data)',
+          fontSize: '28px',
+          fontWeight: 600,
+          letterSpacing: '2px',
+          margin: 0,
+          color: 'var(--color-text)',
+        }}>
+          SELECT SESSION
+        </h1>
+        <div style={{ display: 'flex', gap: '4px' }}>
+          {YEARS.map((y) => (
+            <button
+              key={y}
+              onClick={() => onYearChange(y)}
+              style={{
+                padding: '6px 16px',
+                border: 'none',
+                borderRadius: '4px',
+                background: year === y ? 'var(--color-accent)' : 'transparent',
+                color: year === y ? '#fff' : 'var(--color-muted)',
+                fontFamily: 'var(--font-data)',
+                fontSize: '15px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {y}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {loading && <p style={{ color: '#888', fontFamily: 'monospace' }}>Loading sessions…</p>}
-      {error && <p style={{ color: '#f55' }}>Error: {error}</p>}
-
-      {!loading && !error && sessions.length === 0 && (
-        <p style={{ color: '#888' }}>No sessions found for {year}.</p>
+      {error && (
+        <div style={{
+          borderLeft: '3px solid var(--color-accent)',
+          padding: '10px 14px',
+          background: 'rgba(225,6,0,0.08)',
+          borderRadius: '4px',
+          color: '#f88',
+          fontSize: '14px',
+          marginBottom: '16px',
+        }}>
+          {error}
+        </div>
       )}
 
-      {Array.from(grouped.entries()).map(([eventName, eventSessions]) => (
-        <div key={eventName} style={{ marginBottom: '16px' }}>
-          <h3 style={{ margin: '0 0 6px', fontSize: '14px', color: '#aaa', textTransform: 'uppercase' }}>
-            {eventName}
-          </h3>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-            {eventSessions.map((s) => {
-              const progress = ingestProgress.get(s.session_key)
-              const isIngesting = !!progress
+      {!loading && !error && sessions.length === 0 && (
+        <p style={{ color: 'var(--color-muted)' }}>No sessions found for {year}.</p>
+      )}
 
-              if (isIngesting) {
-                return (
-                  <div
-                    key={s.session_key}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: '6px',
-                      padding: '5px 6px 5px 12px',
-                      background: '#2a2a2a', border: '1px solid #555',
-                      borderRadius: '4px', fontSize: '13px', color: '#aaa',
-                    }}
-                  >
-                    <span>{s.session_name}</span>
-                    <ProgressRing done={progress.done} total={progress.total} />
-                    <button
-                      onClick={() => handleCancel(s.session_key, progress.raceId)}
-                      title="Cancel ingest"
-                      style={{
-                        background: 'none', border: 'none', color: '#f55',
-                        cursor: 'pointer', padding: '0 2px', fontSize: '13px',
-                        lineHeight: 1,
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                )
-              }
-
-              if (s.ingested && s.race_id) {
-                return (
-                  <button
-                    key={s.session_key}
-                    onClick={() => onSelect(s.race_id!)}
-                    style={{
-                      padding: '6px 14px', cursor: 'pointer',
-                      background: '#1a6e1a', color: '#fff',
-                      border: '1px solid #2a9e2a', borderRadius: '4px', fontSize: '13px',
-                    }}
-                  >
-                    {s.session_name}
-                  </button>
-                )
-              }
-
-              return (
-                <button
-                  key={s.session_key}
-                  onClick={() => handleIngest(s)}
-                  style={{
-                    padding: '6px 14px', cursor: 'pointer',
-                    background: '#333', color: '#ccc',
-                    border: '1px solid #555', borderRadius: '4px', fontSize: '13px',
-                  }}
-                >
-                  {s.session_name} ↓
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      ))}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+        {loading
+          ? Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} style={{
+                height: '140px',
+                borderRadius: '8px',
+                background: 'linear-gradient(90deg, var(--color-surface) 25%, var(--color-border) 50%, var(--color-surface) 75%)',
+                backgroundSize: '200% 100%',
+                animation: 'pulse 1.5s infinite',
+                animationDelay: `${i * 0.15}s`,
+              }} />
+            ))
+          : Array.from(grouped.entries()).map(([eventName, eventSessions]) => (
+              <EventCard
+                key={eventName}
+                name={eventName}
+                sessions={eventSessions}
+                year={year}
+                ingestProgress={ingestProgress}
+                failedIngests={failedIngests}
+                onIngest={handleIngest}
+                onRetry={handleRetry}
+                onCancel={handleCancel}
+                onDelete={handleDelete}
+                onSelect={onSelect}
+              />
+            ))
+        }
+      </div>
     </div>
   )
 }

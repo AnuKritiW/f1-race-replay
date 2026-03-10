@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Dark background -->
+  <rect width="32" height="32" rx="5" fill="#15151e"/>
+  <!-- Chequered flag: 4x4 grid of 6px squares, centered -->
+  <!-- Row 1: B W B W -->
+  <rect x="4"  y="4"  width="6" height="6" fill="#e10600"/>
+  <rect x="10" y="4"  width="6" height="6" fill="white"/>
+  <rect x="16" y="4"  width="6" height="6" fill="#e10600"/>
+  <rect x="22" y="4"  width="6" height="6" fill="white"/>
+  <!-- Row 2: W B W B -->
+  <rect x="4"  y="10" width="6" height="6" fill="white"/>
+  <rect x="10" y="10" width="6" height="6" fill="#e10600"/>
+  <rect x="16" y="10" width="6" height="6" fill="white"/>
+  <rect x="22" y="10" width="6" height="6" fill="#e10600"/>
+  <!-- Row 3: B W B W -->
+  <rect x="4"  y="16" width="6" height="6" fill="#e10600"/>
+  <rect x="10" y="16" width="6" height="6" fill="white"/>
+  <rect x="16" y="16" width="6" height="6" fill="#e10600"/>
+  <rect x="22" y="16" width="6" height="6" fill="white"/>
+  <!-- Row 4: W B W B -->
+  <rect x="4"  y="22" width="6" height="6" fill="white"/>
+  <rect x="10" y="22" width="6" height="6" fill="#e10600"/>
+  <rect x="16" y="22" width="6" height="6" fill="white"/>
+  <rect x="22" y="22" width="6" height="6" fill="#e10600"/>
+</svg>

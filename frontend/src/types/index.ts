@@ -21,6 +21,7 @@ export type AvailableSession = {
   year: number
   date_start: string
   country_name: string
+  circuit_short_name: string
   ingested: boolean
   race_id: string | null
 }

@@ -33,6 +33,9 @@ export const fetchBulkStates = (raceId: string): Promise<RaceState[]> =>
 export const fetchTrack = (raceId: string): Promise<Array<{ x: number; y: number }>> =>
   get(`/races/${raceId}/track`)
 
+export const fetchDriverColors = (raceId: string): Promise<Record<string, string>> =>
+  get(`/races/${raceId}/drivers`)
+
 export const fetchSessions = (): Promise<SessionInfo[]> =>
   get('/sessions')
 
@@ -45,6 +48,15 @@ export const postIngest = (race_id: string, session_key: number): Promise<{ race
 export const fetchIngestProgress = (race_id: string): Promise<{ total: number; done: number; status: string }> =>
   get(`/admin/sessions/${race_id}/progress`)
 
+export const fetchActiveIngests = (): Promise<Record<string, { done: number; total: number }>> =>
+  get('/admin/sessions/ingest/active')
+
 export const cancelIngest = (race_id: string): Promise<{ race_id: string; status: string }> => {
   return fetch(`${BASE}/admin/sessions/${race_id}/ingest`, { method: 'DELETE' }).then((r) => r.json())
 }
+
+export const deleteSession = (race_id: string): Promise<{ race_id: string; status: string }> =>
+  fetch(`${BASE}/admin/sessions/${race_id}`, { method: 'DELETE' }).then((r) => {
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+    return r.json()
+  })
