@@ -69,12 +69,13 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
     return a.best_lap_duration - b.best_lap_duration
   }
 
-  // For lap timing view: active drivers sorted by best lap, then Q2-eliminated, then Q1-eliminated
+  // For lap timing view: active drivers sorted by best lap, then Q2-eliminated, then Q1-eliminated, then OUT
   const displayStandings = view === 'fastest'
     ? [
         ...standings.filter(s => s.status === 'active').sort(sortByBestLap),
         ...standings.filter(s => s.eliminated_in_phase === 2).sort(sortByBestLap),
         ...standings.filter(s => s.eliminated_in_phase === 1).sort(sortByBestLap),
+        ...standings.filter(s => s.status === 'out'),
       ]
     : standings
 
@@ -238,12 +239,13 @@ function DriverRow({
 }) {
   const [hovered, setHovered] = useState(false)
   const { driver_id, position, gap_to_leader, interval, last_lap_duration,
-          best_lap_duration, compound, tyre_age, is_fastest_lap, status } = standing
+          best_lap_duration, compound, tyre_age, is_fastest_lap, status, out_reason } = standing
 
   const isEliminated = status === 'eliminated'
+  const isOut = status === 'out'
   const compoundColor = compound ? (COMPOUND_COLORS[compound] ?? '#888') : '#888'
   const displayPos = view === 'position' ? (position ?? rank) : rank
-  const rowOpacity = isEliminated ? 0.45 : 1
+  const rowOpacity = isEliminated || isOut ? 0.45 : 1
 
   // Fastest lap: purple on the time cell
   const isFastestInView = view === 'fastest'
@@ -303,12 +305,13 @@ function DriverRow({
         {view === 'position' ? formatGap(gapVal, isLeader) : ''}
       </span>
 
-      {/* Lap time */}
+      {/* Lap time / OUT label */}
       <span style={{
         fontFamily: 'var(--font-data)', fontSize: '12px',
-        textAlign: 'right', ...fastStyle,
+        textAlign: 'right',
+        ...(isOut ? { color: '#e8002d', fontWeight: 700 } : fastStyle),
       }}>
-        {formatLapTime(timeVal)}
+        {isOut ? (out_reason ?? 'OUT') : formatLapTime(timeVal)}
       </span>
 
       {/* Tyre */}

@@ -6,7 +6,7 @@ from sqlalchemy import delete, select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
-from app.models import Event, IntervalEvent, LapEvent, PositionEvent, QualifyingPhase, RaceSession, Snapshot
+from app.models import Event, IntervalEvent, LapEvent, PositionEvent, QualifyingPhase, RaceSession, SessionResult, Snapshot
 from app.schemas import (
     AvailableSession, CarState, IngestRequest, RaceState, RaceTimeline,
     SessionInfo, TrackPoint, IngestResponse,
@@ -192,6 +192,25 @@ async def get_bulk_timing(race_id: str, db: AsyncSession = Depends(get_db)):
         .where(LapEvent.race_id == race_id).order_by(LapEvent.timestamp)
     )).all()
 
+    # Load session results for DNF/DNS/DSQ detection
+    # retirements: driver_id → {"reason": "DNF"|"DNS"|"DSQ", "n_laps": int}
+    raw_results = (await db.execute(
+        select(SessionResult.driver_id, SessionResult.dnf, SessionResult.dns,
+               SessionResult.dsq, SessionResult.number_of_laps)
+        .where(SessionResult.race_id == race_id)
+    )).all()
+
+    retirements: dict[str, dict] = {}
+    for r in raw_results:
+        if r.dnf or r.dns or r.dsq:
+            reason = "DSQ" if r.dsq else ("DNS" if r.dns else "DNF")
+            retirements[r.driver_id] = {"reason": reason, "n_laps": r.number_of_laps or 0}
+
+    # Build (driver_id, lap_number) → timestamp for retirement cutoff lookup
+    lap_ts_lookup: dict[tuple[str, int], float] = {
+        (e.driver_id, e.lap_number): e.timestamp for e in lap_events
+    }
+
     # Load qualifying phase boundaries (empty for non-qualifying sessions)
     q_phases = (await db.execute(
         select(QualifyingPhase.phase, QualifyingPhase.start_ts, QualifyingPhase.end_ts)
@@ -339,9 +358,31 @@ async def get_bulk_timing(race_id: str, db: AsyncSession = Depends(get_db)):
                 "is_fastest_lap": is_fastest,
                 "status": "eliminated" if is_eliminated else "active",
                 "eliminated_in_phase": elim[0] if is_eliminated else None,
+                "out_reason": None,
             })
 
-        standings.sort(key=lambda s: (s["position"] is None, s["position"] or 9999))
+        # Apply retirements: drivers with DNF/DNS/DSQ are marked 'out' once
+        # the race has progressed past their last completed lap.
+        for standing in standings:
+            ret = retirements.get(standing["driver_id"])
+            if ret is None:
+                continue
+            n_laps = ret["n_laps"]
+            if n_laps == 0:
+                is_out = True
+            else:
+                ret_ts = lap_ts_lookup.get((standing["driver_id"], n_laps))
+                is_out = ret_ts is not None and t >= int(ret_ts)
+            if is_out:
+                standing["status"] = "out"
+                standing["out_reason"] = ret["reason"]
+
+        standings.sort(key=lambda s: (
+            s["status"] == "out",           # OUT drivers last
+            s["status"] == "eliminated",    # then eliminated
+            s["position"] is None,
+            s["position"] or 9999,
+        ))
         frames.append({"timestamp": float(t), "standings": standings})
 
     content = json.dumps(frames).encode()
@@ -599,6 +640,7 @@ async def delete_session(race_id: str, db: AsyncSession = Depends(get_db)):
     await db.execute(delete(IntervalEvent).where(IntervalEvent.race_id == race_id))
     await db.execute(delete(LapEvent).where(LapEvent.race_id == race_id))
     await db.execute(delete(QualifyingPhase).where(QualifyingPhase.race_id == race_id))
+    await db.execute(delete(SessionResult).where(SessionResult.race_id == race_id))
     await db.execute(delete(RaceSession).where(RaceSession.race_id == race_id))
     await db.commit()
 

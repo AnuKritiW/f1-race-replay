@@ -37,8 +37,9 @@ export type DriverStanding = {
   compound: string | null
   tyre_age: number
   is_fastest_lap: boolean
-  status: 'active' | 'eliminated'
+  status: 'active' | 'eliminated' | 'out'
   eliminated_in_phase: number | null  // 1=Q1, 2=Q2, null=not eliminated
+  out_reason: 'DNF' | 'DNS' | 'DSQ' | null
 }
 
 export type TimingState = {

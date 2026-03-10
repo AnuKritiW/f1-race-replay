@@ -5,10 +5,10 @@ from datetime import datetime
 from sqlalchemy.dialects.postgresql import insert
 
 from app.database import AsyncSessionLocal
-from app.models import Event, IntervalEvent, LapEvent, PositionEvent, QualifyingPhase
+from app.models import Event, IntervalEvent, LapEvent, PositionEvent, QualifyingPhase, SessionResult
 from app.ingestor.openf1 import (
     fetch_drivers, fetch_location,
-    fetch_position, fetch_intervals, fetch_laps, fetch_stints, fetch_race_control,
+    fetch_position, fetch_intervals, fetch_laps, fetch_stints, fetch_race_control, fetch_session_result,
 )
 
 
@@ -164,7 +164,7 @@ async def load_timing(
 
     # ── Lap events (per-driver, semaphore 3) ──────────────────────────────
     lap_count = 0
-    semaphore = asyncio.Semaphore(3)
+    semaphore = asyncio.Semaphore(2)
 
     async def load_driver_laps(driver: dict) -> int:
         if is_cancelled and is_cancelled():
@@ -249,4 +249,32 @@ async def load_timing(
         except Exception as e:
             print(f"  Race control not available for session {session_key}: {e}")
 
-    return {"positions": pos_count, "intervals": int_count, "laps": lap_count, "phases": phase_count}
+    # ── Session results (DNF / DNS / DSQ) ────────────────────────────────
+    result_count = 0
+    if not (is_cancelled and is_cancelled()):
+        try:
+            raw_results = await fetch_session_result(session_key)
+            result_rows = []
+            for r in raw_results:
+                acronym = num_to_acronym.get(r.get("driver_number"))
+                if not acronym:
+                    continue
+                result_rows.append({
+                    "race_id": race_id,
+                    "driver_id": acronym,
+                    "dnf": bool(r.get("dnf")),
+                    "dns": bool(r.get("dns")),
+                    "dsq": bool(r.get("dsq")),
+                    "number_of_laps": r.get("number_of_laps"),
+                })
+            if result_rows:
+                async with AsyncSessionLocal() as session:
+                    for row in result_rows:
+                        await session.execute(insert(SessionResult).values(row).on_conflict_do_nothing())
+                    await session.commit()
+            result_count = len(result_rows)
+            print(f"  Session results: stored {result_count} entries")
+        except Exception as e:
+            print(f"  Session results not available for session {session_key}: {e}")
+
+    return {"positions": pos_count, "intervals": int_count, "laps": lap_count, "phases": phase_count, "results": result_count}

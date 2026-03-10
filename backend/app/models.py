@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Float, Integer, String, JSON, DateTime, Index, PrimaryKeyConstraint, UniqueConstraint
+from sqlalchemy import Boolean, Float, Integer, String, JSON, DateTime, Index, PrimaryKeyConstraint, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -105,6 +105,21 @@ class LapEvent(Base):
         Index("ix_lap_race_ts", "race_id", "timestamp"),
         Index("ix_lap_race_driver_lap", "race_id", "driver_id", "lap_number"),
         UniqueConstraint("race_id", "driver_id", "lap_number", name="uq_lap_race_driver_lap"),
+    )
+
+
+class SessionResult(Base):
+    __tablename__ = "session_results"
+
+    race_id: Mapped[str] = mapped_column(String, nullable=False)
+    driver_id: Mapped[str] = mapped_column(String, nullable=False)
+    dnf: Mapped[bool] = mapped_column(Boolean, default=False)
+    dns: Mapped[bool] = mapped_column(Boolean, default=False)
+    dsq: Mapped[bool] = mapped_column(Boolean, default=False)
+    number_of_laps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    __table_args__ = (
+        PrimaryKeyConstraint("race_id", "driver_id"),
     )
 
 
