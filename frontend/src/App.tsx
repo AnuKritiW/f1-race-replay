@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchDriverColors, fetchTimeline } from './api/client'
+import { fetchDriverColors, fetchSessions, fetchTimeline } from './api/client'
 import { usePlayback } from './hooks/usePlayback'
 import { TrackMap } from './components/TrackMap'
 import { PlaybackControls } from './components/PlaybackControls'
@@ -82,14 +82,16 @@ function ReplayPlayer({
   raceId,
   timeline,
   sessionInfo,
+  sessionType,
   onBack,
 }: {
   raceId: string
   timeline: RaceTimeline
   sessionInfo: AvailableSession | null
+  sessionType: string
   onBack: () => void
 }) {
-  const { bufferRef, playheadRef, playheadTime, isLoaded, isPlaying, speed, play, pause, setSpeed, scrubTo } =
+  const { bufferRef, timingBufferRef, playheadRef, playheadTime, isLoaded, isPlaying, speed, play, pause, setSpeed, scrubTo } =
     usePlayback(raceId, timeline)
 
   const [colorMap, setColorMap] = useState<Record<string, string>>({})
@@ -142,7 +144,7 @@ function ReplayPlayer({
           display: 'flex',
           flexDirection: 'column',
         }}>
-          <TimingTower bufferRef={bufferRef} playheadRef={playheadRef} colorMap={colorMap} />
+          <TimingTower timingBufferRef={timingBufferRef} playheadRef={playheadRef} colorMap={colorMap} sessionType={sessionType} />
         </aside>
         <div style={{ flex: 1, overflow: 'hidden' }}>
           <TrackMap raceId={raceId} bufferRef={bufferRef} playheadRef={playheadRef} colorMap={colorMap} />
@@ -187,6 +189,7 @@ function Replay({
 }) {
   const [timeline, setTimeline] = useState<RaceTimeline | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [sessionType, setSessionType] = useState<string>(sessionInfo?.session_type ?? '')
 
   useEffect(() => {
     setTimeline(null)
@@ -195,6 +198,20 @@ function Replay({
       .then(setTimeline)
       .catch((e: Error) => setError(e.message))
   }, [raceId])
+
+  // Derive sessionType for direct URL loads where sessionInfo is null
+  useEffect(() => {
+    if (sessionInfo) {
+      setSessionType(sessionInfo.session_type)
+    } else {
+      fetchSessions()
+        .then(sessions => {
+          const found = sessions.find(s => s.race_id === raceId)
+          if (found) setSessionType(found.session_type)
+        })
+        .catch(() => {})
+    }
+  }, [raceId, sessionInfo])
 
   if (error) return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -216,7 +233,7 @@ function Replay({
     </div>
   )
 
-  return <ReplayPlayer raceId={raceId} timeline={timeline} sessionInfo={sessionInfo} onBack={onBack} />
+  return <ReplayPlayer raceId={raceId} timeline={timeline} sessionInfo={sessionInfo} sessionType={sessionType} onBack={onBack} />
 }
 
 function App() {

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchBulkStates } from '../api/client'
-import type { RaceState, RaceTimeline } from '../types'
+import { fetchBulkStates, fetchBulkTiming } from '../api/client'
+import type { RaceState, RaceTimeline, TimingState } from '../types'
 
 type Speed = 1 | 5 | 10
 
 interface PlaybackControls {
   bufferRef: React.RefObject<Map<number, RaceState>>
+  timingBufferRef: React.RefObject<Map<number, TimingState>>
   playheadRef: React.RefObject<number>
   playheadTime: number
   isLoaded: boolean
@@ -28,16 +29,37 @@ export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackCon
   const playheadRef = useRef(playheadTime)
   const speedRef = useRef(speed)
   const bufferRef = useRef<Map<number, RaceState>>(new Map())
+  const timingBufferRef = useRef<Map<number, TimingState>>(new Map())
 
   useEffect(() => { speedRef.current = speed }, [speed])
 
-  // Load the entire race into the buffer once on mount
+  // Load both buffers in parallel; isLoaded waits for both
   useEffect(() => {
+    let statesLoaded = false
+    let timingLoaded = false
+
+    function checkBothLoaded() {
+      if (statesLoaded && timingLoaded) setIsLoaded(true)
+    }
+
     fetchBulkStates(raceId).then(states => {
       for (const state of states) {
         bufferRef.current.set(Math.floor(state.timestamp), state)
       }
-      setIsLoaded(true)
+      statesLoaded = true
+      checkBothLoaded()
+    })
+
+    fetchBulkTiming(raceId).then(frames => {
+      for (const frame of frames) {
+        timingBufferRef.current.set(Math.floor(frame.timestamp), frame)
+      }
+      timingLoaded = true
+      checkBothLoaded()
+    }).catch(() => {
+      // Timing data may not exist yet for sessions ingested before Phase 3
+      timingLoaded = true
+      checkBothLoaded()
     })
   }, [raceId])
 
@@ -86,5 +108,5 @@ export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackCon
     setPlayheadTime(clamped)
   }, [timeline.start_time, timeline.end_time])
 
-  return { bufferRef, playheadRef, playheadTime, isLoaded, isPlaying, speed, play, pause, setSpeed, scrubTo }
+  return { bufferRef, timingBufferRef, playheadRef, playheadTime, isLoaded, isPlaying, speed, play, pause, setSpeed, scrubTo }
 }

@@ -5,10 +5,10 @@ from datetime import datetime
 from sqlalchemy.dialects.postgresql import insert
 
 from app.database import AsyncSessionLocal
-from app.models import Event, IntervalEvent, LapEvent, PositionEvent
+from app.models import Event, IntervalEvent, LapEvent, PositionEvent, QualifyingPhase
 from app.ingestor.openf1 import (
     fetch_drivers, fetch_location,
-    fetch_position, fetch_intervals, fetch_laps,
+    fetch_position, fetch_intervals, fetch_laps, fetch_race_control,
 )
 
 
@@ -201,4 +201,37 @@ async def load_timing(
     lap_count = sum(lap_results)
     print(f"  Laps: inserted up to {lap_count} rows")
 
-    return {"positions": pos_count, "intervals": int_count, "laps": lap_count}
+    # ── Qualifying phase boundaries (race_control, qualifying sessions only) ─
+    phase_count = 0
+    if not (is_cancelled and is_cancelled()):
+        try:
+            rc_events = await fetch_race_control(session_key)
+            phases: dict[int, dict] = {}
+            for ev in rc_events:
+                qp = ev.get("qualifying_phase")
+                if not qp or ev.get("category") != "SessionStatus":
+                    continue
+                ts = datetime.fromisoformat(ev["date"].replace("Z", "+00:00")).timestamp()
+                msg = ev.get("message", "")
+                phases.setdefault(qp, {})
+                if "STARTED" in msg:
+                    phases[qp]["start"] = ts
+                elif "FINISHED" in msg:
+                    phases[qp]["end"] = ts
+            phase_rows = [
+                {"race_id": race_id, "phase": num, "start_ts": b["start"], "end_ts": b.get("end")}
+                for num, b in phases.items() if "start" in b
+            ]
+            if phase_rows:
+                async with AsyncSessionLocal() as session:
+                    for row in phase_rows:
+                        await session.execute(
+                            insert(QualifyingPhase).values(row).on_conflict_do_nothing()
+                        )
+                    await session.commit()
+            phase_count = len(phase_rows)
+            print(f"  Qualifying phases: stored {phase_count} boundaries")
+        except Exception as e:
+            print(f"  Race control not available for session {session_key}: {e}")
+
+    return {"positions": pos_count, "intervals": int_count, "laps": lap_count, "phases": phase_count}

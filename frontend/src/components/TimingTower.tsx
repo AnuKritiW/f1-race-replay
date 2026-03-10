@@ -62,18 +62,27 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
     return () => clearInterval(id)
   }, [timingBufferRef, playheadRef])
 
+  const sortByBestLap = (a: DriverStanding, b: DriverStanding) => {
+    if (a.best_lap_duration === null && b.best_lap_duration === null) return 0
+    if (a.best_lap_duration === null) return 1
+    if (b.best_lap_duration === null) return -1
+    return a.best_lap_duration - b.best_lap_duration
+  }
+
+  // For lap timing view: active drivers sorted by best lap, then Q2-eliminated, then Q1-eliminated
   const displayStandings = view === 'fastest'
-    ? [...standings].sort((a, b) => {
-        if (a.best_lap_duration === null && b.best_lap_duration === null) return 0
-        if (a.best_lap_duration === null) return 1
-        if (b.best_lap_duration === null) return -1
-        return a.best_lap_duration - b.best_lap_duration
-      })
+    ? [
+        ...standings.filter(s => s.status === 'active').sort(sortByBestLap),
+        ...standings.filter(s => s.eliminated_in_phase === 2).sort(sortByBestLap),
+        ...standings.filter(s => s.eliminated_in_phase === 1).sort(sortByBestLap),
+      ]
     : standings
 
   const sessionBest = view === 'fastest'
-    ? displayStandings.find(s => s.best_lap_duration !== null)?.best_lap_duration ?? null
+    ? displayStandings.find(s => s.best_lap_duration !== null && s.status === 'active')?.best_lap_duration ?? null
     : null
+
+  const hasEliminations = standings.some(s => s.status === 'eliminated')
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -170,18 +179,46 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
                 animationDelay: `${i * 0.15}s`,
               }} />
             ))
-          : displayStandings.map((s, idx) => (
-              <DriverRow
-                key={s.driver_id}
-                standing={s}
-                rank={idx + 1}
-                isLeader={idx === 0}
-                view={view}
-                showGap={showGap}
-                sessionBest={sessionBest}
-                color={colorMap[s.driver_id] ?? driverColor(s.driver_id)}
-              />
-            ))
+          : displayStandings.map((s, idx) => {
+              const prevS = displayStandings[idx - 1]
+              const showSeparator = view === 'fastest' && hasEliminations && idx > 0
+                && s.eliminated_in_phase !== prevS?.eliminated_in_phase
+
+              const label = s.eliminated_in_phase === 2 && prevS?.eliminated_in_phase !== 2
+                ? 'Q2 Out'
+                : s.eliminated_in_phase === 1 && prevS?.eliminated_in_phase !== 1
+                  ? 'Q1 Out'
+                  : null
+
+              return (
+                <div key={s.driver_id}>
+                  {showSeparator && (
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      padding: '4px 12px 2px',
+                    }}>
+                      <div style={{ flex: 1, height: '1px', background: 'var(--color-border)' }} />
+                      {label && (
+                        <span style={{
+                          fontFamily: 'var(--font-data)', fontSize: '9px',
+                          color: 'var(--color-muted)', letterSpacing: '1px',
+                        }}>{label}</span>
+                      )}
+                      <div style={{ flex: 1, height: '1px', background: 'var(--color-border)' }} />
+                    </div>
+                  )}
+                  <DriverRow
+                    standing={s}
+                    rank={idx + 1}
+                    isLeader={idx === 0}
+                    view={view}
+                    showGap={showGap}
+                    sessionBest={sessionBest}
+                    color={colorMap[s.driver_id] ?? driverColor(s.driver_id)}
+                  />
+                </div>
+              )
+            })
         }
       </div>
     </div>
@@ -201,10 +238,12 @@ function DriverRow({
 }) {
   const [hovered, setHovered] = useState(false)
   const { driver_id, position, gap_to_leader, interval, last_lap_duration,
-          best_lap_duration, compound, tyre_age, is_fastest_lap } = standing
+          best_lap_duration, compound, tyre_age, is_fastest_lap, status } = standing
 
+  const isEliminated = status === 'eliminated'
   const compoundColor = compound ? (COMPOUND_COLORS[compound] ?? '#888') : '#888'
   const displayPos = view === 'position' ? (position ?? rank) : rank
+  const rowOpacity = isEliminated ? 0.45 : 1
 
   // Fastest lap: purple on the time cell
   const isFastestInView = view === 'fastest'
@@ -231,6 +270,7 @@ function DriverRow({
         gap: '4px',
         background: hovered ? 'rgba(255,255,255,0.04)' : 'transparent',
         cursor: 'default',
+        opacity: rowOpacity,
       }}
     >
       {/* Position */}

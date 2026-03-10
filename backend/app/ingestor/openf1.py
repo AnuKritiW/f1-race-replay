@@ -33,3 +33,19 @@ async def fetch_location(session_key: int, driver_number: int) -> list[dict]:
         {"date": rec["date"], "x": rec.get("x"), "y": rec.get("y"), "speed": rec.get("speed"), "_raw": rec}
         for rec in records
     ]
+
+
+async def fetch_position(session_key: int) -> list[dict]:
+    return await _get(f"{BASE_URL}/position", {"session_key": session_key})
+
+
+async def fetch_intervals(session_key: int) -> list[dict]:
+    return await _get(f"{BASE_URL}/intervals", {"session_key": session_key})
+
+
+async def fetch_laps(session_key: int, driver_number: int) -> list[dict]:
+    return await _get(f"{BASE_URL}/laps", {"session_key": session_key, "driver_number": driver_number})
+
+
+async def fetch_race_control(session_key: int) -> list[dict]:
+    return await _get(f"{BASE_URL}/race_control", {"session_key": session_key})
