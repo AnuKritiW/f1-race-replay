@@ -47,5 +47,9 @@ async def fetch_laps(session_key: int, driver_number: int) -> list[dict]:
     return await _get(f"{BASE_URL}/laps", {"session_key": session_key, "driver_number": driver_number})
 
 
+async def fetch_stints(session_key: int, driver_number: int) -> list[dict]:
+    return await _get(f"{BASE_URL}/stints", {"session_key": session_key, "driver_number": driver_number})
+
+
 async def fetch_race_control(session_key: int) -> list[dict]:
     return await _get(f"{BASE_URL}/race_control", {"session_key": session_key})

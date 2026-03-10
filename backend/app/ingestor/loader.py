@@ -8,7 +8,7 @@ from app.database import AsyncSessionLocal
 from app.models import Event, IntervalEvent, LapEvent, PositionEvent, QualifyingPhase
 from app.ingestor.openf1 import (
     fetch_drivers, fetch_location,
-    fetch_position, fetch_intervals, fetch_laps, fetch_race_control,
+    fetch_position, fetch_intervals, fetch_laps, fetch_stints, fetch_race_control,
 )
 
 
@@ -173,22 +173,37 @@ async def load_timing(
             dn = driver["driver_number"]
             acronym = num_to_acronym.get(dn, str(dn))
             laps = await fetch_laps(session_key, dn)
+            stints = await fetch_stints(session_key, dn)
             if not laps:
                 return 0
+
+            # Build lap_number → (compound, tyre_age_at_start) from stints.
+            # A stint covers [lap_start, lap_end] inclusive.
+            stint_map: dict[int, tuple[str | None, int]] = {}
+            for s in stints:
+                compound = s.get("compound")
+                age = s.get("tyre_age_at_start") or 0
+                lap_s = s.get("lap_start") or 0
+                lap_e = s.get("lap_end") or lap_s
+                for ln in range(lap_s, lap_e + 1):
+                    stint_map[ln] = (compound, age)
+
             lap_rows = []
             for lap in laps:
                 raw_ts = lap.get("date_start")
                 if not raw_ts or lap.get("lap_number") is None:
                     continue
                 ts = datetime.fromisoformat(raw_ts.replace("Z", "+00:00")).timestamp()
+                ln = lap["lap_number"]
+                compound, tyre_age = stint_map.get(ln, (None, 0))
                 lap_rows.append({
                     "race_id": race_id,
                     "driver_id": acronym,
-                    "lap_number": lap["lap_number"],
+                    "lap_number": ln,
                     "timestamp": ts,
                     "lap_duration": lap.get("lap_duration"),
-                    "compound": lap.get("compound"),
-                    "tyre_age_at_start": lap.get("tyre_age_at_start"),
+                    "compound": compound,
+                    "tyre_age_at_start": tyre_age,
                 })
             if lap_rows:
                 async with AsyncSessionLocal() as session:

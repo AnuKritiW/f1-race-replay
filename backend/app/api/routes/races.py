@@ -215,6 +215,11 @@ async def get_bulk_timing(race_id: str, db: AsyncSession = Depends(get_db)):
     # the separator/dimming appears at the correct moment (next phase green flag).
     phase_start_by_num = {qp.phase: qp.start_ts for qp in q_phases}
 
+    # Elimination is position-based, not a fixed count.
+    # Q1: P16 and below are out. Q2: P11 and below are out.
+    # TODO: From 2026, Q1 cutoff changes to P17 and below (format change).
+    PHASE_CUTOFF = {1: 16, 2: 11}
+
     eliminations: dict[str, tuple[int, float]] = {}
     for qp in q_phases:
         if qp.phase >= 3 or qp.end_ts is None:
@@ -229,10 +234,11 @@ async def get_bulk_timing(race_id: str, db: AsyncSession = Depends(get_db)):
                 break
             if e.driver_id not in already_out:
                 pos_at_end[e.driver_id] = e.position
-        # Bottom 5 (highest position number) are eliminated
-        ranked = sorted(pos_at_end.items(), key=lambda x: x[1] or 9999, reverse=True)
-        for driver_id, _ in ranked[:5]:
-            eliminations[driver_id] = (qp.phase, cutoff_ts)
+        # Eliminate anyone at or below the cutoff position for this phase.
+        min_elim_pos = PHASE_CUTOFF.get(qp.phase, 16)
+        for driver_id, pos in pos_at_end.items():
+            if pos >= min_elim_pos:
+                eliminations[driver_id] = (qp.phase, cutoff_ts)
 
     # Fetch steward-deleted lap times from race_control so we don't count them
     # in best_lap_duration. deleted_times[driver_acronym] = set of deleted durations (seconds).
@@ -483,8 +489,6 @@ async def list_available_sessions(
 
 
 async def _run_ingest(race_id: str, session_key: int) -> None:
-    _ingest_state[race_id] = {"total": 0, "done": 0, "status": "running"}
-
     def on_driver_done(done: int, total: int) -> None:
         _ingest_state[race_id]["done"] = done
         _ingest_state[race_id]["total"] = total
@@ -550,6 +554,7 @@ async def ingest_session(
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(status_code=409, detail=f"race_id '{body.race_id}' already ingested")
 
+    _ingest_state[body.race_id] = {"total": 0, "done": 0, "status": "running"}
     background_tasks.add_task(_run_ingest, body.race_id, body.session_key)
     return {"race_id": body.race_id, "status": "ingesting"}
 
