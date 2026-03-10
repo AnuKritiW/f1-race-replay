@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import Response
 import json
-from sqlalchemy import delete, select, func
+from sqlalchemy import delete, select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
@@ -21,6 +21,26 @@ _ingest_state: dict[str, dict] = {}
 # { race_id: { 'total': int, 'done': int, 'status': 'running'|'cancelled'|'done' } }
 
 
+async def _first_motion_ts(race_id: str, db: AsyncSession) -> float | None:
+    """Return the first timestamp where any driver's x/y changes by > 5 units."""
+    result = await db.execute(
+        text("""
+            WITH prev AS (
+                SELECT timestamp,
+                       x - LAG(x) OVER (PARTITION BY driver_id ORDER BY timestamp) AS dx,
+                       y - LAG(y) OVER (PARTITION BY driver_id ORDER BY timestamp) AS dy
+                FROM events
+                WHERE race_id = :race_id
+            )
+            SELECT MIN(timestamp) FROM prev
+            WHERE (ABS(dx) > 5 OR ABS(dy) > 5)
+              AND dx IS NOT NULL AND dy IS NOT NULL
+        """),
+        {"race_id": race_id},
+    )
+    return result.scalar()
+
+
 @router.get("/races/{race_id}/timeline", response_model=RaceTimeline)
 async def get_timeline(race_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
@@ -30,7 +50,8 @@ async def get_timeline(race_id: str, db: AsyncSession = Depends(get_db)):
     row = result.one()
     if row[0] is None:
         raise HTTPException(status_code=404, detail=f"Race '{race_id}' not found")
-    return RaceTimeline(start_time=row[0], end_time=row[1], duration=row[1] - row[0])
+    start_time = await _first_motion_ts(race_id, db) or row[0]
+    return RaceTimeline(start_time=start_time, end_time=row[1], duration=row[1] - start_time)
 
 
 @router.get("/races/{race_id}/state", response_model=RaceState)
@@ -92,7 +113,9 @@ async def get_bulk_states(
     row = timeline_result.one()
     if row[0] is None:
         raise HTTPException(status_code=404, detail=f"Race '{race_id}' not found")
-    start_ts, end_ts = int(row[0]), int(row[1])
+    motion_ts = await _first_motion_ts(race_id, db)
+    start_ts = int(motion_ts if motion_ts is not None else row[0])
+    end_ts = int(row[1])
 
     events_result = await db.execute(
         select(Event.driver_id, Event.timestamp, Event.x, Event.y, Event.speed)
