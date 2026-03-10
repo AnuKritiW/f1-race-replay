@@ -17,6 +17,7 @@ from app.snapshot.builder import build_snapshots
 router = APIRouter()
 
 _bulk_states_cache: dict[str, bytes] = {}
+_track_cache: dict[str, list] = {}
 _ingest_state: dict[str, dict] = {}
 # { race_id: { 'total': int, 'done': int, 'status': 'running'|'cancelled'|'done' } }
 
@@ -179,25 +180,57 @@ async def get_driver_colors(race_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.get("/races/{race_id}/track", response_model=list[TrackPoint])
 async def get_track(race_id: str, db: AsyncSession = Depends(get_db)):
-    # Pick the driver with the most valid (non-zero) position data to trace the circuit
-    driver_result = await db.execute(
-        select(Event.driver_id)
-        .where(Event.race_id == race_id, Event.x != 0, Event.y != 0)
-        .group_by(Event.driver_id)
-        .order_by(func.count().desc())
-        .limit(1)
+    if race_id in _track_cache:
+        return _track_cache[race_id]
+    # Load x/y/driver for all drivers to build a consensus grid, then pick
+    # the reference driver whose path stays most on-circuit (highest fraction
+    # of points in cells shared by multiple drivers). This avoids anomalous
+    # excursions (crashes, off-track incidents) corrupting the track shape.
+    result = await db.execute(
+        select(Event.driver_id, Event.timestamp, Event.x, Event.y)
+        .where(Event.race_id == race_id, Event.x.is_not(None), Event.y.is_not(None),
+               Event.x != 0, Event.y != 0)
+        .order_by(Event.driver_id, Event.timestamp)
     )
-    driver = driver_result.scalar_one_or_none()
-    if driver is None:
+    events = result.all()
+    if not events:
         raise HTTPException(status_code=404, detail=f"Race '{race_id}' not found")
 
-    result = await db.execute(
-        select(Event.x, Event.y)
-        .where(Event.race_id == race_id, Event.driver_id == driver, Event.x != 0, Event.y != 0)
-        .order_by(Event.timestamp)
-    )
-    rows = result.all()
-    return [TrackPoint(x=row[0], y=row[1]) for row in rows]
+    GRID_SIZE = 50
+    MIN_DRIVERS = 2
+
+    # Build consensus grid: cells visited by at least MIN_DRIVERS distinct drivers
+    grid: dict[tuple, set] = {}
+    events_by_driver: dict[str, list] = {}
+    for row in events:
+        cell = (int(row.x / GRID_SIZE), int(row.y / GRID_SIZE))
+        if cell not in grid:
+            grid[cell] = set()
+        grid[cell].add(row.driver_id)
+        if row.driver_id not in events_by_driver:
+            events_by_driver[row.driver_id] = []
+        events_by_driver[row.driver_id].append(row)
+
+    consensus = {cell for cell, drivers in grid.items() if len(drivers) >= MIN_DRIVERS}
+
+    # Score each driver by fraction of their points that fall in consensus cells.
+    # The driver with the cleanest on-circuit path scores highest.
+    def consensus_score(driver_id: str) -> float:
+        pts = events_by_driver[driver_id]
+        if not pts:
+            return 0.0
+        on_circuit = sum(
+            1 for r in pts
+            if (int(r.x / GRID_SIZE), int(r.y / GRID_SIZE)) in consensus
+        )
+        return on_circuit / len(pts)
+
+    ref_driver = max(events_by_driver, key=consensus_score)
+
+    rows = events_by_driver[ref_driver]
+    points = [TrackPoint(x=r.x, y=r.y) for r in rows]
+    _track_cache[race_id] = points
+    return points
 
 
 @router.get("/sessions", response_model=list[SessionInfo])
@@ -353,6 +386,7 @@ async def delete_session(race_id: str, db: AsyncSession = Depends(get_db)):
     await db.commit()
 
     _bulk_states_cache.pop(race_id, None)
+    _track_cache.pop(race_id, None)
     _ingest_state.pop(race_id, None)
 
     return {"race_id": race_id, "status": "deleted"}
