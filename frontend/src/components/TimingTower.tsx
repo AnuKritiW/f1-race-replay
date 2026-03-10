@@ -136,7 +136,7 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
                 color: 'var(--color-muted)',
               }}
             >
-              {showGap ? 'LEADER' : 'INT'}
+              {showGap ? 'INT' : 'LEADER'}
             </button>
           )}
         </div>
