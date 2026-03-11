@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { DriverStanding, TimingState } from '../types'
 import { driverColor } from '../utils/driverColor'
 
@@ -41,6 +41,8 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
   const [view, setView] = useState<ViewMode>(defaultView)
   const [showGap, setShowGap] = useState(true)
   const [standings, setStandings] = useState<DriverStanding[]>([])
+  const rowsRef = useRef<HTMLDivElement>(null)
+  const [rowHeight, setRowHeight] = useState(36)
 
   // Which views are available for this session type
   const availableViews: ViewMode[] = RACE_SESSIONS.has(sessionType)
@@ -85,6 +87,30 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
 
   const hasEliminations = standings.some(s => s.status === 'eliminated')
 
+  // Count how many phase separators will render (each transition between eliminated_in_phase groups)
+  const SEPARATOR_HEIGHT = 14
+  const numSeparators = view === 'fastest' && hasEliminations
+    ? displayStandings.reduce((count, s, idx) => {
+        if (idx === 0) return count
+        return s.eliminated_in_phase !== displayStandings[idx - 1].eliminated_in_phase ? count + 1 : count
+      }, 0)
+    : 0
+
+  // Recompute row height whenever the container resizes, driver count, or separator count changes
+  const numRows = displayStandings.length || 1
+  useEffect(() => {
+    const el = rowsRef.current
+    if (!el) return
+    const update = () => {
+      const available = el.clientHeight - numSeparators * SEPARATOR_HEIGHT
+      setRowHeight(Math.floor(available / numRows))
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [numRows, numSeparators])
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Header */}
@@ -96,7 +122,7 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
               onClick={() => setView(v)}
               style={{
                 fontFamily: 'var(--font-data)',
-                fontSize: '10px',
+                fontSize: '11px',
                 letterSpacing: '1px',
                 textTransform: 'uppercase',
                 padding: '3px 8px',
@@ -113,7 +139,7 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
           {availableViews.length === 1 && (
             <span style={{
               fontFamily: 'var(--font-data)',
-              fontSize: '10px',
+              fontSize: '11px',
               letterSpacing: '1px',
               textTransform: 'uppercase',
               color: 'var(--color-muted)',
@@ -127,7 +153,7 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
               style={{
                 marginLeft: 'auto',
                 fontFamily: 'var(--font-data)',
-                fontSize: '10px',
+                fontSize: '11px',
                 letterSpacing: '1px',
                 padding: '3px 8px',
                 borderRadius: '3px',
@@ -157,7 +183,7 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
         ).map((h, i) => (
           <span key={i} style={{
             fontFamily: 'var(--font-data)',
-            fontSize: '9px',
+            fontSize: '10px',
             color: 'var(--color-muted)',
             letterSpacing: '1px',
             textTransform: 'uppercase',
@@ -167,7 +193,7 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
       </div>
 
       {/* Rows */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div ref={rowsRef} style={{ flex: 1, overflow: 'hidden' }}>
         {displayStandings.length === 0
           ? Array.from({ length: 5 }).map((_, i) => (
               <div key={i} style={{
@@ -196,12 +222,14 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
                   {showSeparator && (
                     <div style={{
                       display: 'flex', alignItems: 'center', gap: '6px',
-                      padding: '4px 12px 2px',
+                      padding: '2px 12px',
+                      height: `${SEPARATOR_HEIGHT}px`,
+                      boxSizing: 'border-box',
                     }}>
                       <div style={{ flex: 1, height: '1px', background: 'var(--color-border)' }} />
                       {label && (
                         <span style={{
-                          fontFamily: 'var(--font-data)', fontSize: '9px',
+                          fontFamily: 'var(--font-data)', fontSize: '10px',
                           color: 'var(--color-muted)', letterSpacing: '1px',
                         }}>{label}</span>
                       )}
@@ -216,6 +244,7 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
                     showGap={showGap}
                     sessionBest={sessionBest}
                     color={colorMap[s.driver_id] ?? driverColor(s.driver_id)}
+                    rowHeight={rowHeight}
                   />
                 </div>
               )
@@ -227,7 +256,7 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
 }
 
 function DriverRow({
-  standing, rank, isLeader, view, showGap, sessionBest, color,
+  standing, rank, isLeader, view, showGap, sessionBest, color, rowHeight,
 }: {
   standing: DriverStanding
   rank: number
@@ -236,6 +265,7 @@ function DriverRow({
   showGap: boolean
   sessionBest: number | null
   color: string
+  rowHeight: number
 }) {
   const [hovered, setHovered] = useState(false)
   const { driver_id, position, gap_to_leader, interval, last_lap_duration,
@@ -267,7 +297,7 @@ function DriverRow({
         display: 'grid',
         gridTemplateColumns: '20px 38px 1fr 64px 46px',
         alignItems: 'center',
-        height: '34px',
+        height: `${rowHeight}px`,
         padding: '0 12px',
         gap: '4px',
         background: hovered ? 'rgba(255,255,255,0.04)' : 'transparent',
@@ -277,7 +307,7 @@ function DriverRow({
     >
       {/* Position */}
       <span style={{
-        fontFamily: 'var(--font-data)', fontSize: '11px',
+        fontFamily: 'var(--font-data)', fontSize: `${Math.round(rowHeight * 0.46)}px`,
         color: 'var(--color-muted)', textAlign: 'right',
       }}>
         {displayPos}
@@ -290,7 +320,7 @@ function DriverRow({
           background: color, flexShrink: 0,
         }} />
         <span style={{
-          fontFamily: 'var(--font-data)', fontSize: '13px', fontWeight: 700,
+          fontFamily: 'var(--font-data)', fontSize: `${Math.round(rowHeight * 0.48)}px`, fontWeight: 700,
           color: 'var(--color-text)', letterSpacing: '0.5px',
         }}>
           {driver_id}
@@ -299,7 +329,7 @@ function DriverRow({
 
       {/* Gap / interval (position view) or empty (fastest view) */}
       <span style={{
-        fontFamily: 'var(--font-data)', fontSize: '12px',
+        fontFamily: 'var(--font-data)', fontSize: `${Math.round(rowHeight * 0.44)}px`,
         color: 'var(--color-muted)', textAlign: 'right',
       }}>
         {view === 'position' ? formatGap(gapVal, isLeader) : ''}
@@ -307,7 +337,7 @@ function DriverRow({
 
       {/* Lap time / OUT label */}
       <span style={{
-        fontFamily: 'var(--font-data)', fontSize: '12px',
+        fontFamily: 'var(--font-data)', fontSize: `${Math.round(rowHeight * 0.44)}px`,
         textAlign: 'right',
         ...(isOut ? { color: '#e8002d', fontWeight: 700 } : fastStyle),
       }}>
@@ -319,17 +349,17 @@ function DriverRow({
         {compound ? (
           <>
             <span style={{
-              fontFamily: 'var(--font-data)', fontSize: '11px',
+              fontFamily: 'var(--font-data)', fontSize: `${Math.round(rowHeight * 0.52)}px`,
               fontWeight: 700, color: compoundColor,
             }}>
               {compound[0]}
             </span>
-            <span style={{ fontFamily: 'var(--font-data)', fontSize: '10px', color: 'var(--color-muted)' }}>
+            <span style={{ fontFamily: 'var(--font-data)', fontSize: `${Math.round(rowHeight * 0.46)}px`, color: 'var(--color-muted)' }}>
               {tyre_age}
             </span>
           </>
         ) : (
-          <span style={{ color: 'var(--color-muted)', fontSize: '11px' }}>—</span>
+          <span style={{ color: 'var(--color-muted)', fontSize: `${Math.round(rowHeight * 0.46)}px` }}>—</span>
         )}
       </span>
     </div>
