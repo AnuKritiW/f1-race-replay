@@ -25,3 +25,25 @@ export type AvailableSession = {
   ingested: boolean
   race_id: string | null
 }
+
+export type DriverStanding = {
+  driver_id: string
+  position: number | null
+  gap_to_leader: number | null   // >= 1000 means lapped: N laps = value - 1000
+  interval: number | null
+  last_lap_duration: number | null
+  best_lap_duration: number | null
+  lap_number: number
+  compound: string | null
+  tyre_age: number
+  is_fastest_lap: boolean
+  status: 'active' | 'eliminated' | 'out'
+  eliminated_in_phase: number | null  // 1=Q1, 2=Q2, null=not eliminated
+  out_reason: 'DNF' | 'DNS' | 'DSQ' | null
+}
+
+export type TimingState = {
+  timestamp: number
+  standings: DriverStanding[]
+  race_lap: number | null
+}

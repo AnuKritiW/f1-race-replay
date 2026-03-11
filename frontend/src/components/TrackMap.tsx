@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { fetchTrack } from '../api/client'
-import type { RaceState } from '../types'
+import type { RaceState, TimingState } from '../types'
 import { driverColor } from '../utils/driverColor'
 
 interface Props {
   raceId: string
   bufferRef: React.RefObject<Map<number, RaceState>>
+  timingBufferRef: React.RefObject<Map<number, TimingState>>
   playheadRef: React.RefObject<number>
   colorMap: Record<string, string>
 }
@@ -113,7 +114,7 @@ function buildNormalizer(
   }
 }
 
-export function TrackMap({ raceId, bufferRef, playheadRef, colorMap }: Props) {
+export function TrackMap({ raceId, bufferRef, timingBufferRef, playheadRef, colorMap }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [trackPoints, setTrackPoints] = useState<Array<{ x: number; y: number }>>([])
@@ -209,6 +210,12 @@ export function TrackMap({ raceId, bufferRef, playheadRef, colorMap }: Props) {
       const buffer = bufferRef.current
       const floor = Math.floor(playhead)
 
+      // Build set of retired drivers to skip rendering
+      const timingFrame = timingBufferRef.current.get(floor)
+      const outDrivers = new Set(
+        timingFrame?.standings.filter(s => s.status === 'out').map(s => s.driver_id) ?? []
+      )
+
       const s1 = buffer.get(floor) ?? null
       const s2 = buffer.get(floor + 1) ?? null
       if (!s1 || !s2) return
@@ -218,6 +225,7 @@ export function TrackMap({ raceId, bufferRef, playheadRef, colorMap }: Props) {
       const t = playhead - floor
 
       for (const [driverId, p2car] of Object.entries(s2.cars)) {
+        if (outDrivers.has(driverId)) continue
         if (p2car.x == null || p2car.y == null || (p2car.x === 0 && p2car.y === 0)) continue
 
         const p1car = s1.cars[driverId]
@@ -273,7 +281,7 @@ export function TrackMap({ raceId, bufferRef, playheadRef, colorMap }: Props) {
 
     rafId = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(rafId)
-  }, [trackPoints, bufferRef, playheadRef])
+  }, [trackPoints, bufferRef, timingBufferRef, playheadRef])
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
