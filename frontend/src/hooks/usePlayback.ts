@@ -55,11 +55,13 @@ export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackCon
       loadingTilesRef.current.add(idx)
       const from = Math.floor(start_time + idx * TILE_SIZE)
       const to = from + TILE_SIZE - 1
+      const fetchedForRace = raceIdRef.current
 
       Promise.all([
-        fetchTileStates(raceIdRef.current, from, to),
-        fetchTileTiming(raceIdRef.current, from, to).catch(() => [] as TimingState[]),
+        fetchTileStates(fetchedForRace, from, to),
+        fetchTileTiming(fetchedForRace, from, to).catch(() => [] as TimingState[]),
       ]).then(([states, frames]) => {
+        if (raceIdRef.current !== fetchedForRace) return // race changed while fetching
         for (const state of states) {
           bufferRef.current.set(Math.floor(state.timestamp), state)
         }
@@ -108,7 +110,9 @@ export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackCon
     loadingTilesRef.current.clear()
     if (scrubSettleTimerRef.current) clearTimeout(scrubSettleTimerRef.current)
 
+    let cancelled = false
     fetchScrubBuffer(raceId).then(frames => {
+      if (cancelled) return
       for (const frame of frames) {
         scrubBufferRef.current.set(frame.t, frame)
       }
@@ -116,6 +120,7 @@ export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackCon
       // Preload tile 0 so the user can play immediately
       loadTileAt(timeline.start_time, true)
     })
+    return () => { cancelled = true }
   }, [raceId, timeline.start_time, loadTileAt])
 
   const animate = useCallback((timestamp: number) => {
