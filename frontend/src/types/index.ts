@@ -45,4 +45,5 @@ export type DriverStanding = {
 export type TimingState = {
   timestamp: number
   standings: DriverStanding[]
+  race_lap: number | null
 }

@@ -41,6 +41,9 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
   const [view, setView] = useState<ViewMode>(defaultView)
   const [showGap, setShowGap] = useState(true)
   const [standings, setStandings] = useState<DriverStanding[]>([])
+  const [currentLap, setCurrentLap] = useState<number | null>(null)
+  const [totalLaps, setTotalLaps] = useState<number | null>(null)
+  const totalLapsSeedRef = useRef(false)
   const rowsRef = useRef<HTMLDivElement>(null)
   const [rowHeight, setRowHeight] = useState(36)
 
@@ -59,7 +62,20 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
   useEffect(() => {
     const id = setInterval(() => {
       const frame = timingBufferRef.current.get(Math.floor(playheadRef.current))
-      if (frame) setStandings(frame.standings)
+      if (frame) {
+        setStandings(frame.standings)
+        if (frame.race_lap != null) setCurrentLap(frame.race_lap)
+
+        // On first non-empty frame, scan the full buffer to find total laps
+        if (!totalLapsSeedRef.current && timingBufferRef.current.size > 0) {
+          totalLapsSeedRef.current = true
+          let max = 0
+          for (const f of timingBufferRef.current.values()) {
+            if ((f.race_lap ?? 0) > max) max = f.race_lap ?? 0
+          }
+          if (max > 0) setTotalLaps(max)
+        }
+      }
     }, 200)
     return () => clearInterval(id)
   }, [timingBufferRef, playheadRef])
@@ -86,6 +102,7 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
     : null
 
   const hasEliminations = standings.some(s => s.status === 'eliminated')
+
 
   // Count how many phase separators will render (each transition between eliminated_in_phase groups)
   const SEPARATOR_HEIGHT = 14
@@ -147,11 +164,22 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
               {view === 'position' ? 'Track Pos' : 'Lap Timing'}
             </span>
           )}
+          {view === 'position' && RACE_SESSIONS.has(sessionType) && currentLap !== null && (
+            <span style={{
+              marginLeft: 'auto',
+              fontFamily: 'var(--font-data)',
+              fontSize: '11px',
+              letterSpacing: '1px',
+              color: 'var(--color-muted)',
+            }}>
+              LAP {currentLap}{totalLaps ? `/${totalLaps}` : ''}
+            </span>
+          )}
           {view === 'position' && (
             <button
               onClick={() => setShowGap(g => !g)}
               style={{
-                marginLeft: 'auto',
+                marginLeft: view === 'position' && currentLap !== null ? undefined : 'auto',
                 fontFamily: 'var(--font-data)',
                 fontSize: '11px',
                 letterSpacing: '1px',

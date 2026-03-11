@@ -1,3 +1,4 @@
+from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import Response
 import json
@@ -267,6 +268,8 @@ async def get_bulk_timing(race_id: str, db: AsyncSession = Depends(get_db)):
     session_key_val = (await db.execute(
         select(RaceSession.session_key).where(RaceSession.race_id == race_id)
     )).scalar_one_or_none()
+    # rc_lap_events: sorted (timestamp, lap_number) pairs from race_control for global lap counter
+    rc_lap_events: list[tuple[float, int]] = []
     if session_key_val:
         try:
             rc_events = await fetch_race_control(session_key_val)
@@ -278,6 +281,16 @@ async def get_bulk_timing(race_id: str, db: AsyncSession = Depends(get_db)):
                 if parsed is not None:
                     acronym, lap_time = parsed
                     deleted_times.setdefault(acronym, set()).add(round(lap_time, 3))
+            for ev in rc_events:
+                ln = ev.get("lap_number")
+                if ln is None:
+                    continue
+                try:
+                    ts = datetime.fromisoformat(ev["date"].replace("Z", "+00:00")).timestamp()
+                    rc_lap_events.append((ts, int(ln)))
+                except (KeyError, ValueError):
+                    pass
+            rc_lap_events.sort(key=lambda x: x[0])
         except Exception as exc:
             print(f"  Could not fetch deleted lap times for {race_id}: {exc}")
 
@@ -286,7 +299,8 @@ async def get_bulk_timing(race_id: str, db: AsyncSession = Depends(get_db)):
     tyre_base: dict[str, tuple[int, int]] = {}  # driver -> (lap_when_fitted, age_at_start)
     session_best: float | None = None  # global fastest lap so far
 
-    pos_idx = int_idx = lap_idx = 0
+    pos_idx = int_idx = lap_idx = rc_lap_idx = 0
+    current_race_lap: int | None = None
     frames = []
 
     for t in range(start_ts, end_ts + 1, 1):
@@ -297,6 +311,10 @@ async def get_bulk_timing(race_id: str, db: AsyncSession = Depends(get_db)):
                     ds.pop("best_lap_duration", None)
             session_best = None
             reset_idx += 1
+
+        while rc_lap_idx < len(rc_lap_events) and rc_lap_events[rc_lap_idx][0] <= t:
+            current_race_lap = rc_lap_events[rc_lap_idx][1]
+            rc_lap_idx += 1
 
         while pos_idx < len(pos_events) and pos_events[pos_idx].timestamp <= t:
             e = pos_events[pos_idx]
@@ -382,7 +400,10 @@ async def get_bulk_timing(race_id: str, db: AsyncSession = Depends(get_db)):
             s["position"] is None,
             s["position"] or 9999,
         ))
-        frames.append({"timestamp": float(t), "standings": standings})
+        # Fill gaps between race_control events using the max per-driver lap number seen so far
+        standings_max_lap = max((ds.get("lap_number") or 0 for ds in driver_state.values()), default=0)
+        effective_race_lap = max(current_race_lap or 0, standings_max_lap) or None
+        frames.append({"timestamp": float(t), "standings": standings, "race_lap": effective_race_lap})
 
     content = json.dumps(frames).encode()
     _bulk_timing_cache[race_id] = content
@@ -607,15 +628,6 @@ async def get_active_ingests():
         for race_id, state in _ingest_state.items()
         if state["status"] == "running"
     }
-
-
-@router.post("/admin/sessions/{race_id}/bust-cache", status_code=200)
-async def bust_cache(race_id: str):
-    """Clear in-memory caches for a session so they are recomputed on next request."""
-    _bulk_states_cache.pop(race_id, None)
-    _bulk_timing_cache.pop(race_id, None)
-    _track_cache.pop(race_id, None)
-    return {"race_id": race_id, "status": "cache cleared"}
 
 
 @router.get("/admin/sessions/{race_id}/progress")
