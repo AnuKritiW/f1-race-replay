@@ -147,7 +147,7 @@ function ReplayPlayer({
           <TimingTower timingBufferRef={timingBufferRef} playheadRef={playheadRef} colorMap={colorMap} sessionType={sessionType} />
         </aside>
         <div style={{ flex: 1, overflow: 'hidden' }}>
-          <TrackMap raceId={raceId} bufferRef={bufferRef} playheadRef={playheadRef} colorMap={colorMap} />
+          <TrackMap raceId={raceId} bufferRef={bufferRef} timingBufferRef={timingBufferRef} playheadRef={playheadRef} colorMap={colorMap} />
         </div>
       </main>
       <footer style={{

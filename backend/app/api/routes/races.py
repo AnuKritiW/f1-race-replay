@@ -206,10 +206,12 @@ async def get_bulk_timing(race_id: str, db: AsyncSession = Depends(get_db)):
             reason = "DSQ" if r.dsq else ("DNS" if r.dns else "DNF")
             retirements[r.driver_id] = {"reason": reason, "n_laps": r.number_of_laps or 0}
 
-    # Build (driver_id, lap_number) → timestamp for retirement cutoff lookup
-    lap_ts_lookup: dict[tuple[str, int], float] = {
-        (e.driver_id, e.lap_number): e.timestamp for e in lap_events
-    }
+    # Earliest timestamp any driver started each lap number.
+    # A retired driver who DNF'd on lap N disappears when lap N+1 begins globally.
+    lap_start_by_number: dict[int, float] = {}
+    for e in lap_events:
+        if e.lap_number not in lap_start_by_number or e.timestamp < lap_start_by_number[e.lap_number]:
+            lap_start_by_number[e.lap_number] = e.timestamp
 
     # Load qualifying phase boundaries (empty for non-qualifying sessions)
     q_phases = (await db.execute(
@@ -368,11 +370,8 @@ async def get_bulk_timing(race_id: str, db: AsyncSession = Depends(get_db)):
             if ret is None:
                 continue
             n_laps = ret["n_laps"]
-            if n_laps == 0:
-                is_out = True
-            else:
-                ret_ts = lap_ts_lookup.get((standing["driver_id"], n_laps))
-                is_out = ret_ts is not None and t >= int(ret_ts)
+            cutoff_ts = lap_start_by_number.get(n_laps + 3)
+            is_out = cutoff_ts is not None and t >= int(cutoff_ts)
             if is_out:
                 standing["status"] = "out"
                 standing["out_reason"] = ret["reason"]
@@ -608,6 +607,15 @@ async def get_active_ingests():
         for race_id, state in _ingest_state.items()
         if state["status"] == "running"
     }
+
+
+@router.post("/admin/sessions/{race_id}/bust-cache", status_code=200)
+async def bust_cache(race_id: str):
+    """Clear in-memory caches for a session so they are recomputed on next request."""
+    _bulk_states_cache.pop(race_id, None)
+    _bulk_timing_cache.pop(race_id, None)
+    _track_cache.pop(race_id, None)
+    return {"race_id": race_id, "status": "cache cleared"}
 
 
 @router.get("/admin/sessions/{race_id}/progress")
