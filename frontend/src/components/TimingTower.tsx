@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { DriverStanding, TimingState } from '../types'
+import type { DriverStanding, ScrubFrame, TimingState } from '../types'
 import { driverColor } from '../utils/driverColor'
 
 const COMPOUND_COLORS: Record<string, string> = {
@@ -31,12 +31,13 @@ type ViewMode = 'position' | 'fastest'
 
 interface Props {
   timingBufferRef: React.RefObject<Map<number, TimingState>>
+  scrubBufferRef: React.RefObject<Map<number, ScrubFrame>>
   playheadRef: React.RefObject<number>
   colorMap: Record<string, string>
   sessionType: string
 }
 
-export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionType }: Props) {
+export function TimingTower({ timingBufferRef, scrubBufferRef, playheadRef, colorMap, sessionType }: Props) {
   const defaultView: ViewMode = RACE_SESSIONS.has(sessionType) ? 'position' : 'fastest'
   const [view, setView] = useState<ViewMode>(defaultView)
   const [showGap, setShowGap] = useState(true)
@@ -44,6 +45,8 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
   const [currentLap, setCurrentLap] = useState<number | null>(null)
   const [totalLaps, setTotalLaps] = useState<number | null>(null)
   const totalLapsSeedRef = useRef(false)
+  const lastStandingsRef = useRef<DriverStanding[]>([])
+  const [isDataStale, setIsDataStale] = useState(false)
   const rowsRef = useRef<HTMLDivElement>(null)
   const [rowHeight, setRowHeight] = useState(36)
 
@@ -61,12 +64,14 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
 
   useEffect(() => {
     const id = setInterval(() => {
-      const frame = timingBufferRef.current.get(Math.floor(playheadRef.current))
+      const floor = Math.floor(playheadRef.current)
+      const frame = timingBufferRef.current.get(floor)
       if (frame) {
         setStandings(frame.standings)
+        lastStandingsRef.current = frame.standings
         if (frame.race_lap != null) setCurrentLap(frame.race_lap)
+        setIsDataStale(false)
 
-        // On first non-empty frame, scan the full buffer to find total laps
         if (!totalLapsSeedRef.current && timingBufferRef.current.size > 0) {
           totalLapsSeedRef.current = true
           let max = 0
@@ -75,10 +80,27 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
           }
           if (max > 0) setTotalLaps(max)
         }
+      } else if (lastStandingsRef.current.length > 0 && scrubBufferRef.current.size > 0) {
+        // Tile not loaded — re-order last known standings by scrub position
+        let scrubFrame = null
+        for (let offset = 0; offset <= 4; offset++) {
+          const candidate = scrubBufferRef.current.get(floor - offset)
+          if (candidate) { scrubFrame = candidate; break }
+        }
+        if (scrubFrame) {
+          const pos = scrubFrame.pos
+          const sorted = [...lastStandingsRef.current].sort((a, b) => {
+            const pa = pos[a.driver_id] ?? 99
+            const pb = pos[b.driver_id] ?? 99
+            return pa - pb
+          })
+          setStandings(sorted)
+          setIsDataStale(true)
+        }
       }
     }, 200)
     return () => clearInterval(id)
-  }, [timingBufferRef, playheadRef])
+  }, [timingBufferRef, scrubBufferRef, playheadRef])
 
   const sortByBestLap = (a: DriverStanding, b: DriverStanding) => {
     if (a.best_lap_duration === null && b.best_lap_duration === null) return 0
@@ -273,6 +295,7 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
                     sessionBest={sessionBest}
                     color={colorMap[s.driver_id] ?? driverColor(s.driver_id)}
                     rowHeight={rowHeight}
+                    isDataStale={isDataStale}
                   />
                 </div>
               )
@@ -284,7 +307,7 @@ export function TimingTower({ timingBufferRef, playheadRef, colorMap, sessionTyp
 }
 
 function DriverRow({
-  standing, rank, isLeader, view, showGap, sessionBest, color, rowHeight,
+  standing, rank, isLeader, view, showGap, sessionBest, color, rowHeight, isDataStale,
 }: {
   standing: DriverStanding
   rank: number
@@ -294,6 +317,7 @@ function DriverRow({
   sessionBest: number | null
   color: string
   rowHeight: number
+  isDataStale: boolean
 }) {
   const [hovered, setHovered] = useState(false)
   const { driver_id, position, gap_to_leader, interval, last_lap_duration,
@@ -359,6 +383,7 @@ function DriverRow({
       <span style={{
         fontFamily: 'var(--font-data)', fontSize: `${Math.round(rowHeight * 0.44)}px`,
         color: 'var(--color-muted)', textAlign: 'right',
+        opacity: isDataStale ? 0.4 : 1,
       }}>
         {view === 'position' ? formatGap(gapVal, isLeader) : ''}
       </span>
@@ -367,6 +392,7 @@ function DriverRow({
       <span style={{
         fontFamily: 'var(--font-data)', fontSize: `${Math.round(rowHeight * 0.44)}px`,
         textAlign: 'right',
+        opacity: isDataStale ? 0.4 : 1,
         ...(isOut ? { color: '#e8002d', fontWeight: 700 } : fastStyle),
       }}>
         {isOut ? (out_reason ?? 'OUT') : formatLapTime(timeVal)}

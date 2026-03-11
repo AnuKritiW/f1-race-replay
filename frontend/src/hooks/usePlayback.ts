@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchBulkStates, fetchBulkTiming } from '../api/client'
-import type { RaceState, RaceTimeline, TimingState } from '../types'
+import { fetchScrubBuffer, fetchTileStates, fetchTileTiming } from '../api/client'
+import type { RaceState, RaceTimeline, ScrubFrame, TimingState } from '../types'
 
 type Speed = 1 | 5 | 10
+const TILE_SIZE = 300 // seconds per tile
 
 interface PlaybackControls {
   bufferRef: React.RefObject<Map<number, RaceState>>
   timingBufferRef: React.RefObject<Map<number, TimingState>>
+  scrubBufferRef: React.RefObject<Map<number, ScrubFrame>>
   playheadRef: React.RefObject<number>
   playheadTime: number
   isLoaded: boolean
@@ -16,6 +18,7 @@ interface PlaybackControls {
   pause: () => void
   setSpeed: (s: Speed) => void
   scrubTo: (t: number) => void
+  onScrubSettle: (t: number) => void
 }
 
 export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackControls {
@@ -30,38 +33,90 @@ export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackCon
   const speedRef = useRef(speed)
   const bufferRef = useRef<Map<number, RaceState>>(new Map())
   const timingBufferRef = useRef<Map<number, TimingState>>(new Map())
+  const scrubBufferRef = useRef<Map<number, ScrubFrame>>(new Map())
+  const loadedTilesRef = useRef<Set<number>>(new Set())
+  const loadingTilesRef = useRef<Set<number>>(new Set())
+  const scrubSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Keep raceId and timeline in a ref so tile-loading callbacks always see latest values
+  const raceIdRef = useRef(raceId)
+  const timelineRef = useRef(timeline)
+  useEffect(() => { raceIdRef.current = raceId }, [raceId])
+  useEffect(() => { timelineRef.current = timeline }, [timeline])
 
   useEffect(() => { speedRef.current = speed }, [speed])
 
-  // Load both buffers in parallel; isLoaded waits for both
-  useEffect(() => {
-    let statesLoaded = false
-    let timingLoaded = false
+  const loadTileAt = useCallback((t: number, prefetchNext = false) => {
+    const { start_time, duration } = timelineRef.current
+    const idx = Math.floor((t - start_time) / TILE_SIZE)
+    if (idx < 0) return
 
-    function checkBothLoaded() {
-      if (statesLoaded && timingLoaded) setIsLoaded(true)
+    if (!loadedTilesRef.current.has(idx) && !loadingTilesRef.current.has(idx)) {
+      loadingTilesRef.current.add(idx)
+      const from = Math.floor(start_time + idx * TILE_SIZE)
+      const to = from + TILE_SIZE - 1
+
+      Promise.all([
+        fetchTileStates(raceIdRef.current, from, to),
+        fetchTileTiming(raceIdRef.current, from, to).catch(() => [] as TimingState[]),
+      ]).then(([states, frames]) => {
+        for (const state of states) {
+          bufferRef.current.set(Math.floor(state.timestamp), state)
+        }
+        for (const frame of frames) {
+          timingBufferRef.current.set(Math.floor(frame.timestamp), frame)
+        }
+        loadedTilesRef.current.add(idx)
+        loadingTilesRef.current.delete(idx)
+
+        // Evict tiles outside ±2 range to bound memory
+        const playheadTile = Math.floor((playheadRef.current - start_time) / TILE_SIZE)
+        for (const ti of [...loadedTilesRef.current]) {
+          if (Math.abs(ti - playheadTile) > 2) {
+            loadedTilesRef.current.delete(ti)
+            const tStart = Math.floor(start_time + ti * TILE_SIZE)
+            const tEnd = tStart + TILE_SIZE
+            for (let ts = tStart; ts <= tEnd; ts++) {
+              bufferRef.current.delete(ts)
+              timingBufferRef.current.delete(ts)
+            }
+          }
+        }
+      })
     }
 
-    fetchBulkStates(raceId).then(states => {
-      for (const state of states) {
-        bufferRef.current.set(Math.floor(state.timestamp), state)
+    if (prefetchNext) {
+      const nextIdx = idx + 1
+      const maxIdx = Math.ceil(duration / TILE_SIZE)
+      if (nextIdx <= maxIdx && !loadedTilesRef.current.has(nextIdx) && !loadingTilesRef.current.has(nextIdx)) {
+        const nextFrom = Math.floor(start_time + nextIdx * TILE_SIZE)
+        loadTileAt(nextFrom, false)
       }
-      statesLoaded = true
-      checkBothLoaded()
-    })
+    }
+  }, []) // stable — uses refs only
 
-    fetchBulkTiming(raceId).then(frames => {
+  // Phase 1: load scrub buffer on session open, then preload tile 0
+  useEffect(() => {
+    setIsLoaded(false)
+    setIsPlaying(false)
+    playheadRef.current = timeline.start_time
+    setPlayheadTime(timeline.start_time)
+    bufferRef.current.clear()
+    timingBufferRef.current.clear()
+    scrubBufferRef.current.clear()
+    loadedTilesRef.current.clear()
+    loadingTilesRef.current.clear()
+    if (scrubSettleTimerRef.current) clearTimeout(scrubSettleTimerRef.current)
+
+    fetchScrubBuffer(raceId).then(frames => {
       for (const frame of frames) {
-        timingBufferRef.current.set(Math.floor(frame.timestamp), frame)
+        scrubBufferRef.current.set(frame.t, frame)
       }
-      timingLoaded = true
-      checkBothLoaded()
-    }).catch(() => {
-      // Timing data may not exist yet for sessions ingested before Phase 3
-      timingLoaded = true
-      checkBothLoaded()
+      setIsLoaded(true)
+      // Preload tile 0 so the user can play immediately
+      loadTileAt(timeline.start_time, true)
     })
-  }, [raceId])
+  }, [raceId, timeline.start_time, loadTileAt])
 
   const animate = useCallback((timestamp: number) => {
     if (lastTimestampRef.current === null) {
@@ -72,9 +127,9 @@ export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackCon
 
     const next = playheadRef.current + (deltaMs * speedRef.current) / 1000
 
-    if (next >= timeline.end_time) {
-      playheadRef.current = timeline.end_time
-      setPlayheadTime(timeline.end_time)
+    if (next >= timelineRef.current.end_time) {
+      playheadRef.current = timelineRef.current.end_time
+      setPlayheadTime(timelineRef.current.end_time)
       setIsPlaying(false)
       return
     }
@@ -82,7 +137,7 @@ export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackCon
     playheadRef.current = next
     setPlayheadTime(next)
     rafRef.current = requestAnimationFrame(animate)
-  }, [timeline.end_time])
+  }, [])
 
   useEffect(() => {
     if (isPlaying) {
@@ -99,14 +154,35 @@ export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackCon
     }
   }, [isPlaying, animate])
 
-  const play = useCallback(() => setIsPlaying(true), [])
+  const play = useCallback(() => {
+    loadTileAt(playheadRef.current, true)
+    setIsPlaying(true)
+  }, [loadTileAt])
+
   const pause = useCallback(() => setIsPlaying(false), [])
+
   const scrubTo = useCallback((t: number) => {
     setIsPlaying(false)
-    const clamped = Math.max(timeline.start_time, Math.min(t, timeline.end_time))
+    const clamped = Math.max(timelineRef.current.start_time, Math.min(t, timelineRef.current.end_time))
     playheadRef.current = clamped
     setPlayheadTime(clamped)
-  }, [timeline.start_time, timeline.end_time])
+    // Debounce tile load for keyboard scrubbing (arrow keys)
+    if (scrubSettleTimerRef.current) clearTimeout(scrubSettleTimerRef.current)
+    scrubSettleTimerRef.current = setTimeout(() => {
+      loadTileAt(clamped, true)
+    }, 400)
+  }, [loadTileAt])
 
-  return { bufferRef, timingBufferRef, playheadRef, playheadTime, isLoaded, isPlaying, speed, play, pause, setSpeed, scrubTo }
+  const onScrubSettle = useCallback((t: number) => {
+    // Called on mouseup/touchend — load immediately, cancel debounce
+    if (scrubSettleTimerRef.current) clearTimeout(scrubSettleTimerRef.current)
+    const clamped = Math.max(timelineRef.current.start_time, Math.min(t, timelineRef.current.end_time))
+    loadTileAt(clamped, true)
+  }, [loadTileAt])
+
+  return {
+    bufferRef, timingBufferRef, scrubBufferRef,
+    playheadRef, playheadTime, isLoaded, isPlaying, speed,
+    play, pause, setSpeed, scrubTo, onScrubSettle,
+  }
 }

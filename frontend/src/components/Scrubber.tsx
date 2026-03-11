@@ -7,6 +7,7 @@ interface Props {
   isPlaying: boolean
   onScrub: (t: number) => void
   onPlay: () => void
+  onScrubSettle: (t: number) => void
 }
 
 function formatRaceTime(seconds: number): string {
@@ -15,7 +16,7 @@ function formatRaceTime(seconds: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
-export function Scrubber({ timeline, playheadTime, isPlaying, onScrub, onPlay }: Props) {
+export function Scrubber({ timeline, playheadTime, isPlaying, onScrub, onPlay, onScrubSettle }: Props) {
   const wasPlayingRef = useRef(false)
 
   const relativeSeconds = playheadTime - timeline.start_time
@@ -37,8 +38,14 @@ export function Scrubber({ timeline, playheadTime, isPlaying, onScrub, onPlay }:
         onMouseDown={() => { wasPlayingRef.current = isPlaying }}
         onTouchStart={() => { wasPlayingRef.current = isPlaying }}
         onChange={(e) => onScrub(Number(e.target.value))}
-        onMouseUp={() => { if (wasPlayingRef.current) onPlay() }}
-        onTouchEnd={() => { if (wasPlayingRef.current) onPlay() }}
+        onMouseUp={(e) => {
+          onScrubSettle(Number((e.currentTarget as HTMLInputElement).value))
+          if (wasPlayingRef.current) onPlay()
+        }}
+        onTouchEnd={(e) => {
+          onScrubSettle(Number((e.currentTarget as HTMLInputElement).value))
+          if (wasPlayingRef.current) onPlay()
+        }}
         style={{ flex: 1, '--range-pct': `${pct}%` } as React.CSSProperties}
       />
       <span style={{
