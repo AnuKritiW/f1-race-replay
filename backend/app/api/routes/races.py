@@ -71,7 +71,11 @@ async def get_timeline(race_id: str, db: AsyncSession = Depends(get_db)):
     if row[0] is None:
         raise HTTPException(status_code=404, detail=f"Race '{race_id}' not found")
     start_time = await _first_motion_ts(race_id, db) or row[0]
-    return RaceTimeline(start_time=start_time, end_time=row[1], duration=row[1] - start_time)
+    total_laps_row = await db.execute(
+        select(func.max(LapEvent.lap_number)).where(LapEvent.race_id == race_id)
+    )
+    total_laps = total_laps_row.scalar()
+    return RaceTimeline(start_time=start_time, end_time=row[1], duration=row[1] - start_time, total_laps=total_laps)
 
 
 @router.get("/races/{race_id}/state", response_model=RaceState)

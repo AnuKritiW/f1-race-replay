@@ -16,6 +16,7 @@ class RaceTimeline(BaseModel):
     start_time: float
     end_time: float
     duration: float
+    total_laps: int | None = None
 
 
 class TrackPoint(BaseModel):

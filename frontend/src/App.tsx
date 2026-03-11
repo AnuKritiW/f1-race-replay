@@ -144,7 +144,7 @@ function ReplayPlayer({
           display: 'flex',
           flexDirection: 'column',
         }}>
-          <TimingTower timingBufferRef={timingBufferRef} scrubBufferRef={scrubBufferRef} playheadRef={playheadRef} colorMap={colorMap} sessionType={sessionType} />
+          <TimingTower timingBufferRef={timingBufferRef} scrubBufferRef={scrubBufferRef} playheadRef={playheadRef} colorMap={colorMap} sessionType={sessionType} totalLaps={timeline.total_laps ?? null} />
         </aside>
         <div style={{ flex: 1, overflow: 'hidden' }}>
           <TrackMap raceId={raceId} bufferRef={bufferRef} timingBufferRef={timingBufferRef} scrubBufferRef={scrubBufferRef} playheadRef={playheadRef} colorMap={colorMap} />

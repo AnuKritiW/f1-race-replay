@@ -35,16 +35,15 @@ interface Props {
   playheadRef: React.RefObject<number>
   colorMap: Record<string, string>
   sessionType: string
+  totalLaps: number | null
 }
 
-export function TimingTower({ timingBufferRef, scrubBufferRef, playheadRef, colorMap, sessionType }: Props) {
+export function TimingTower({ timingBufferRef, scrubBufferRef, playheadRef, colorMap, sessionType, totalLaps }: Props) {
   const defaultView: ViewMode = RACE_SESSIONS.has(sessionType) ? 'position' : 'fastest'
   const [view, setView] = useState<ViewMode>(defaultView)
   const [showGap, setShowGap] = useState(true)
   const [standings, setStandings] = useState<DriverStanding[]>([])
   const [currentLap, setCurrentLap] = useState<number | null>(null)
-  const [totalLaps, setTotalLaps] = useState<number | null>(null)
-  const totalLapsSeedRef = useRef(false)
   const lastStandingsRef = useRef<DriverStanding[]>([])
   const [isDataStale, setIsDataStale] = useState(false)
   const rowsRef = useRef<HTMLDivElement>(null)
@@ -71,15 +70,6 @@ export function TimingTower({ timingBufferRef, scrubBufferRef, playheadRef, colo
         lastStandingsRef.current = frame.standings
         if (frame.race_lap != null) setCurrentLap(frame.race_lap)
         setIsDataStale(false)
-
-        if (!totalLapsSeedRef.current && timingBufferRef.current.size > 0) {
-          totalLapsSeedRef.current = true
-          let max = 0
-          for (const f of timingBufferRef.current.values()) {
-            if ((f.race_lap ?? 0) > max) max = f.race_lap ?? 0
-          }
-          if (max > 0) setTotalLaps(max)
-        }
       } else if (lastStandingsRef.current.length > 0 && scrubBufferRef.current.size > 0) {
         // Tile not loaded — re-order last known standings by scrub position
         let scrubFrame = null
