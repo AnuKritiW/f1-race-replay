@@ -85,6 +85,7 @@ export function TimingTower({ timingBufferRef, scrubBufferRef, playheadRef, colo
             return pa - pb
           })
           setStandings(sorted)
+          if (scrubFrame.lap != null) setCurrentLap(scrubFrame.lap)
           setIsDataStale(true)
         }
       }

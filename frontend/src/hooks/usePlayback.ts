@@ -13,6 +13,8 @@ interface PlaybackControls {
   playheadTime: number
   isLoaded: boolean
   isPlaying: boolean
+  isBuffering: boolean
+  loadedRanges: [number, number][]
   speed: Speed
   play: () => void
   pause: () => void
@@ -26,6 +28,9 @@ export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackCon
   const [isLoaded, setIsLoaded] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [speed, setSpeed] = useState<Speed>(1)
+  const [isBuffering, setIsBuffering] = useState(false)
+  const [loadedRanges, setLoadedRanges] = useState<[number, number][]>([])
+  const isBufferingRef = useRef(false)
 
   const rafRef = useRef<number | null>(null)
   const lastTimestampRef = useRef<number | null>(null)
@@ -84,6 +89,23 @@ export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackCon
             }
           }
         }
+
+        // Update loaded ranges state for scrubber visualisation
+        const { start_time: st } = timelineRef.current
+        setLoadedRanges([...loadedTilesRef.current].map(ti => [
+          Math.floor(st + ti * TILE_SIZE),
+          Math.floor(st + (ti + 1) * TILE_SIZE),
+        ]))
+
+        // Auto-resume if we were buffering for this tile
+        if (isBufferingRef.current) {
+          const playheadTileIdx = Math.floor((playheadRef.current - st) / TILE_SIZE)
+          if (idx === playheadTileIdx || idx === playheadTileIdx + 1) {
+            isBufferingRef.current = false
+            setIsBuffering(false)
+            setIsPlaying(true)
+          }
+        }
       })
     }
 
@@ -139,10 +161,30 @@ export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackCon
       return
     }
 
+    // Proactive prefetch: start loading the next tile when within 60 race-seconds of the boundary
+    const { start_time } = timelineRef.current
+    const currentTileIdx = Math.floor((next - start_time) / TILE_SIZE)
+    const nextTileBoundary = start_time + (currentTileIdx + 1) * TILE_SIZE
+    if (next + 60 >= nextTileBoundary) {
+      loadTileAt(nextTileBoundary, false)
+    }
+
+    // Auto-pause and buffer if the next position is in an unloaded tile
+    const nextTileIdx = Math.floor((next - start_time) / TILE_SIZE)
+    if (!loadedTilesRef.current.has(nextTileIdx)) {
+      if (!loadingTilesRef.current.has(nextTileIdx)) {
+        loadTileAt(next, true)
+      }
+      isBufferingRef.current = true
+      setIsBuffering(true)
+      setIsPlaying(false) // must go false so setIsPlaying(true) on resume triggers the effect
+      return
+    }
+
     playheadRef.current = next
     setPlayheadTime(next)
     rafRef.current = requestAnimationFrame(animate)
-  }, [])
+  }, [loadTileAt])
 
   useEffect(() => {
     if (isPlaying) {
@@ -164,7 +206,11 @@ export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackCon
     setIsPlaying(true)
   }, [loadTileAt])
 
-  const pause = useCallback(() => setIsPlaying(false), [])
+  const pause = useCallback(() => {
+    isBufferingRef.current = false
+    setIsBuffering(false)
+    setIsPlaying(false)
+  }, [])
 
   const scrubTo = useCallback((t: number) => {
     setIsPlaying(false)
@@ -187,7 +233,7 @@ export function usePlayback(raceId: string, timeline: RaceTimeline): PlaybackCon
 
   return {
     bufferRef, timingBufferRef, scrubBufferRef,
-    playheadRef, playheadTime, isLoaded, isPlaying, speed,
-    play, pause, setSpeed, scrubTo, onScrubSettle,
+    playheadRef, playheadTime, isLoaded, isPlaying, isBuffering, loadedRanges,
+    speed, play, pause, setSpeed, scrubTo, onScrubSettle,
   }
 }

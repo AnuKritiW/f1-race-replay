@@ -48,4 +48,4 @@ export type TimingState = {
   race_lap: number | null
 }
 
-export type ScrubFrame = { t: number; cars: Record<string, [number, number]>; pos: Record<string, number> }
+export type ScrubFrame = { t: number; cars: Record<string, [number, number]>; pos: Record<string, number>; lap?: number | null }

@@ -91,7 +91,7 @@ function ReplayPlayer({
   sessionType: string
   onBack: () => void
 }) {
-  const { bufferRef, timingBufferRef, scrubBufferRef, playheadRef, playheadTime, isLoaded, isPlaying, speed, play, pause, setSpeed, scrubTo, onScrubSettle } =
+  const { bufferRef, timingBufferRef, scrubBufferRef, playheadRef, playheadTime, isLoaded, isPlaying, isBuffering, loadedRanges, speed, play, pause, setSpeed, scrubTo, onScrubSettle } =
     usePlayback(raceId, timeline)
 
   const [colorMap, setColorMap] = useState<Record<string, string>>({})
@@ -166,9 +166,11 @@ function ReplayPlayer({
           onScrub={scrubTo}
           onPlay={play}
           onScrubSettle={onScrubSettle}
+          loadedRanges={loadedRanges}
         />
         <PlaybackControls
           isPlaying={isPlaying}
+          isBuffering={isBuffering}
           speed={speed}
           onPlay={play}
           onPause={pause}

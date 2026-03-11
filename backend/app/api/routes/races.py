@@ -479,10 +479,19 @@ async def get_scrub_buffer(race_id: str, db: AsyncSession = Depends(get_db)):
     )
     pos_events = pos_result.all()
 
+    lap_result = await db.execute(
+        select(LapEvent.timestamp, LapEvent.lap_number)
+        .where(LapEvent.race_id == race_id)
+        .order_by(LapEvent.timestamp)
+    )
+    lap_events_scrub = lap_result.all()
+
     current_cars: dict[str, list] = {}
     current_pos: dict[str, int] = {}
+    current_lap: int | None = None
     event_idx = 0
     pos_idx = 0
+    lap_idx = 0
     frames = []
 
     for t in range(start_ts, end_ts + 1, 5):
@@ -494,11 +503,17 @@ async def get_scrub_buffer(race_id: str, db: AsyncSession = Depends(get_db)):
             e = pos_events[pos_idx]
             current_pos[e.driver_id] = e.position
             pos_idx += 1
+        while lap_idx < len(lap_events_scrub) and lap_events_scrub[lap_idx].timestamp <= t:
+            ln = lap_events_scrub[lap_idx].lap_number
+            if ln is not None and (current_lap is None or ln > current_lap):
+                current_lap = ln
+            lap_idx += 1
         if current_cars:
             frames.append({
                 "t": t,
                 "cars": {k: list(v) for k, v in current_cars.items()},
                 "pos": dict(current_pos),
+                "lap": current_lap,
             })
 
     content = json.dumps(frames).encode()
