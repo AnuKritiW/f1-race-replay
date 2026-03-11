@@ -211,8 +211,16 @@ export function TrackMap({ raceId, bufferRef, timingBufferRef, scrubBufferRef, p
       const buffer = bufferRef.current
       const floor = Math.floor(playhead)
 
-      // Build set of retired drivers to skip rendering
-      const timingFrame = timingBufferRef.current.get(floor)
+      // Build set of retired drivers to skip rendering.
+      // If the exact frame isn't loaded (tile not yet fetched), scan back for the most recent
+      // known frame — retirement is monotonic so a slightly stale frame is safe.
+      let timingFrame = timingBufferRef.current.get(floor)
+      if (!timingFrame) {
+        for (let offset = 1; offset <= 300; offset++) {
+          const f = timingBufferRef.current.get(floor - offset)
+          if (f) { timingFrame = f; break }
+        }
+      }
       const outDrivers = new Set(
         timingFrame?.standings.filter(s => s.status === 'out').map(s => s.driver_id) ?? []
       )
