@@ -39,17 +39,17 @@ This ingests the Singapore 2023 Practice 1 session from OpenF1.
 
 ## API
 
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/health` | Health check |
-| GET | `/sessions` | All ingested sessions |
-| GET | `/races/{race_id}/timeline` | Session start/end timestamps |
-| GET | `/races/{race_id}/states` | Bulk position buffer (one frame/second) |
-| GET | `/races/{race_id}/timing` | Bulk timing buffer (one frame/second) |
-| GET | `/races/{race_id}/track` | Circuit outline points |
-| GET | `/races/{race_id}/drivers` | Driver → team colour map |
-| GET | `/admin/sessions/available?year=` | OpenF1 sessions with ingested flag |
-| POST | `/admin/sessions/ingest` | Start background ingest → 202 |
-| GET | `/admin/sessions/{race_id}/progress` | `{done, total}` ingest progress |
-| DELETE | `/admin/sessions/{race_id}/ingest` | Cancel in-progress ingest |
-| DELETE | `/admin/sessions/{race_id}` | Delete all data for a session |
+| Method | Endpoint | Description | Response shape |
+|---|---|---|---|
+| GET | `/health` | Health check | `{"status": "ok"}` |
+| GET | `/sessions` | All ingested sessions | `[{race_id, session_key, session_name, session_type, event_name, year, date_start, country_name}]` |
+| GET | `/races/{race_id}/timeline` | Session start/end timestamps | `{start, end}` |
+| GET | `/races/{race_id}/states` | Bulk position buffer (one frame/second) | `[{timestamp, cars: {driver_id: {x, y}}}]` |
+| GET | `/races/{race_id}/timing` | Bulk timing buffer (one frame/second) | `[{timestamp, race_lap, standings: [{driver_id, position, gap_to_leader, interval, last_lap_duration, best_lap_duration, compound, tyre_age, is_fastest_lap, status, eliminated_in_phase, out_reason}]}]` |
+| GET | `/races/{race_id}/track` | Circuit outline points | `[{x, y}]` |
+| GET | `/races/{race_id}/drivers` | Driver → team colour map | `{driver_id: hex_colour}` |
+| GET | `/admin/sessions/available?year=` | OpenF1 sessions with ingested flag | `[{session_key, session_name, session_type, event_name, year, country_name, ingested, race_id}]` |
+| POST | `/admin/sessions/ingest` | Start background ingest → 202 | `{race_id, status}` |
+| GET | `/admin/sessions/{race_id}/progress` | `{done, total}` ingest progress | `{done, total, status}` |
+| DELETE | `/admin/sessions/{race_id}/ingest` | Cancel in-progress ingest | `{race_id, status}` |
+| DELETE | `/admin/sessions/{race_id}` | Delete all data for a session | `{race_id, status}` |
