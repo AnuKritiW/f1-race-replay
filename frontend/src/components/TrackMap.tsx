@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { fetchTrack } from '../api/client'
-import type { RaceState, TimingState } from '../types'
+import type { RaceState, ScrubFrame, TimingState } from '../types'
 import { driverColor } from '../utils/driverColor'
 
 interface Props {
   raceId: string
   bufferRef: React.RefObject<Map<number, RaceState>>
   timingBufferRef: React.RefObject<Map<number, TimingState>>
+  scrubBufferRef: React.RefObject<Map<number, ScrubFrame>>
   playheadRef: React.RefObject<number>
   colorMap: Record<string, string>
 }
@@ -114,7 +115,7 @@ function buildNormalizer(
   }
 }
 
-export function TrackMap({ raceId, bufferRef, timingBufferRef, playheadRef, colorMap }: Props) {
+export function TrackMap({ raceId, bufferRef, timingBufferRef, scrubBufferRef, playheadRef, colorMap }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [trackPoints, setTrackPoints] = useState<Array<{ x: number; y: number }>>([])
@@ -210,15 +211,83 @@ export function TrackMap({ raceId, bufferRef, timingBufferRef, playheadRef, colo
       const buffer = bufferRef.current
       const floor = Math.floor(playhead)
 
-      // Build set of retired drivers to skip rendering
-      const timingFrame = timingBufferRef.current.get(floor)
+      // Build set of retired drivers to skip rendering.
+      // If the exact frame isn't loaded (tile not yet fetched), scan back for the most recent
+      // known frame — retirement is monotonic so a slightly stale frame is safe.
+      let timingFrame = timingBufferRef.current.get(floor)
+      if (!timingFrame) {
+        for (let offset = 1; offset <= 300; offset++) {
+          const f = timingBufferRef.current.get(floor - offset)
+          if (f) { timingFrame = f; break }
+        }
+      }
       const outDrivers = new Set(
         timingFrame?.standings.filter(s => s.status === 'out').map(s => s.driver_id) ?? []
       )
 
       const s1 = buffer.get(floor) ?? null
       const s2 = buffer.get(floor + 1) ?? null
-      if (!s1 || !s2) return
+
+      if (!s1 || !s2) {
+        // Tile not loaded — fall back to scrub buffer with linear interpolation
+        const scrubBuf = scrubBufferRef.current
+        // Find nearest scrub frame at or before playhead (step=5s, may not be 5-aligned)
+        let f0: { t: number; cars: Record<string, [number, number]> } | null = null
+        let f1: { t: number; cars: Record<string, [number, number]> } | null = null
+        for (let offset = 0; offset <= 4; offset++) {
+          const candidate = scrubBuf.get(floor - offset)
+          if (candidate) { f0 = candidate; break }
+        }
+        if (f0) {
+          const candidate1 = scrubBuf.get(f0.t + 5)
+          if (candidate1) f1 = candidate1
+        }
+        if (!f0) return
+
+        const t = f1 ? Math.min((playhead - f0.t) / 5, 1) : 0
+
+        for (const [driverId, xy0] of Object.entries(f0.cars)) {
+          if (outDrivers.has(driverId)) continue
+          if (!xy0 || (xy0[0] === 0 && xy0[1] === 0)) continue
+          const xy1 = f1?.cars[driverId]
+          const drawX = f1 && xy1 ? xy0[0] + (xy1[0] - xy0[0]) * t : xy0[0]
+          const drawY = f1 && xy1 ? xy0[1] + (xy1[1] - xy0[1]) * t : xy0[1]
+
+          const [cx, cy] = norm.toCanvas(drawX, drawY)
+          const color = colorMapRef.current[driverId] ?? driverColor(driverId)
+
+          ctx.beginPath()
+          ctx.arc(cx, cy, CAR_RADIUS, 0, Math.PI * 2)
+          ctx.fillStyle = color
+          ctx.fill()
+
+          ctx.font = 'bold 10px monospace'
+          const label = driverId
+          const textW = ctx.measureText(label).width
+          ctx.fillStyle = 'rgba(0,0,0,0.65)'
+          const px = cx + CAR_RADIUS + 2
+          const py = cy - 8
+          const pw = textW + 6
+          const ph = 14
+          const pr = 3
+          ctx.beginPath()
+          ctx.moveTo(px + pr, py)
+          ctx.lineTo(px + pw - pr, py)
+          ctx.quadraticCurveTo(px + pw, py, px + pw, py + pr)
+          ctx.lineTo(px + pw, py + ph - pr)
+          ctx.quadraticCurveTo(px + pw, py + ph, px + pw - pr, py + ph)
+          ctx.lineTo(px + pr, py + ph)
+          ctx.quadraticCurveTo(px, py + ph, px, py + ph - pr)
+          ctx.lineTo(px, py + pr)
+          ctx.quadraticCurveTo(px, py, px + pr, py)
+          ctx.closePath()
+          ctx.fill()
+
+          ctx.fillStyle = '#fff'
+          ctx.fillText(label, cx + CAR_RADIUS + 5, cy + 4)
+        }
+        return
+      }
 
       const s0 = buffer.get(floor - 1) ?? s1
       const s3 = buffer.get(floor + 2) ?? s2
@@ -281,7 +350,7 @@ export function TrackMap({ raceId, bufferRef, timingBufferRef, playheadRef, colo
 
     rafId = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(rafId)
-  }, [trackPoints, bufferRef, timingBufferRef, playheadRef])
+  }, [trackPoints, bufferRef, timingBufferRef, scrubBufferRef, playheadRef])
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>

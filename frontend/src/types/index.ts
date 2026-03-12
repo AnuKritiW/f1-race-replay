@@ -1,6 +1,6 @@
 export type CarState = { x: number; y: number; speed?: number }
 export type RaceState = { timestamp: number; cars: Record<string, CarState> }
-export type RaceTimeline = { start_time: number; end_time: number; duration: number }
+export type RaceTimeline = { start_time: number; end_time: number; duration: number; total_laps?: number | null }
 
 export type SessionInfo = {
   race_id: string
@@ -47,3 +47,5 @@ export type TimingState = {
   standings: DriverStanding[]
   race_lap: number | null
 }
+
+export type ScrubFrame = { t: number; cars: Record<string, [number, number]>; pos: Record<string, number>; lap?: number | null }

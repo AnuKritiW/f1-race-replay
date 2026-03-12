@@ -1,4 +1,4 @@
-import type { RaceState, RaceTimeline, SessionInfo, AvailableSession, TimingState } from '../types'
+import type { RaceState, RaceTimeline, SessionInfo, AvailableSession, TimingState, ScrubFrame } from '../types'
 
 const BASE = '/api'
 
@@ -32,6 +32,15 @@ export const fetchBulkStates = (raceId: string): Promise<RaceState[]> =>
 
 export const fetchBulkTiming = (raceId: string): Promise<TimingState[]> =>
   get(`/races/${raceId}/timing`)
+
+export const fetchScrubBuffer = (raceId: string): Promise<ScrubFrame[]> =>
+  get(`/races/${raceId}/scrub`)
+
+export const fetchTileStates = (raceId: string, from: number, to: number): Promise<RaceState[]> =>
+  get(`/races/${raceId}/states?from=${from}&to=${to}`)
+
+export const fetchTileTiming = (raceId: string, from: number, to: number): Promise<TimingState[]> =>
+  get(`/races/${raceId}/timing?from=${from}&to=${to}`)
 
 export const fetchTrack = (raceId: string): Promise<Array<{ x: number; y: number }>> =>
   get(`/races/${raceId}/track`)

@@ -4,6 +4,7 @@ type Speed = 1 | 5 | 10
 
 interface Props {
   isPlaying: boolean
+  isBuffering: boolean
   speed: Speed
   onPlay: () => void
   onPause: () => void
@@ -12,7 +13,7 @@ interface Props {
 
 const SPEEDS: Speed[] = [1, 5, 10]
 
-export function PlaybackControls({ isPlaying, speed, onPlay, onPause, onSetSpeed }: Props) {
+export function PlaybackControls({ isPlaying, isBuffering, speed, onPlay, onPause, onSetSpeed }: Props) {
   const [playHovered, setPlayHovered] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
 
@@ -28,20 +29,34 @@ export function PlaybackControls({ isPlaying, speed, onPlay, onPause, onSetSpeed
         gap: '4px',
       }}>
         <button
-          onClick={isPlaying ? onPause : onPlay}
-          onMouseEnter={() => setPlayHovered(true)}
+          onClick={isBuffering ? undefined : (isPlaying ? onPause : onPlay)}
+          onMouseEnter={() => !isBuffering && setPlayHovered(true)}
           onMouseLeave={() => setPlayHovered(false)}
           style={{
-            background: playHovered ? 'rgba(255,255,255,0.08)' : 'transparent',
+            background: playHovered && !isBuffering ? 'rgba(255,255,255,0.08)' : 'transparent',
             border: 'none',
             color: 'var(--color-text)',
             padding: '4px 10px',
             borderRadius: '999px',
             fontSize: '14px',
-            cursor: 'pointer',
+            cursor: isBuffering ? 'default' : 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minWidth: '32px',
           }}
         >
-          {isPlaying ? '⏸' : '▶'}
+          {isBuffering ? (
+            <span style={{
+              display: 'inline-block',
+              width: '13px',
+              height: '13px',
+              border: '2px solid rgba(255,255,255,0.25)',
+              borderTopColor: 'var(--color-text)',
+              borderRadius: '50%',
+              animation: 'spin 0.7s linear infinite',
+            }} />
+          ) : (isPlaying ? '⏸' : '▶')}
         </button>
         <div style={{ width: '1px', height: '20px', background: 'var(--color-border)', flexShrink: 0 }} />
         {SPEEDS.map((s) => (
