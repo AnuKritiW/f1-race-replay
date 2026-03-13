@@ -39,6 +39,53 @@ bash scripts/seed.sh
 
 This ingests the Singapore 2023 Practice 1 session from OpenF1.
 
+## Schema migrations
+
+Database schema is managed with Alembic. Migration files live in `backend/alembic/versions/` and are committed to the repo.
+
+**When you change `models.py`** (add a table, column, index, etc.):
+
+```bash
+# 1. Generate a migration by diffing your models against the local dev DB
+docker exec f1-race-replay-backend-1 uv run alembic revision --autogenerate -m "describe the change"
+
+# 2. Copy the generated file from the container to the host
+docker cp f1-race-replay-backend-1:/app/alembic/versions/<new_file>.py backend/alembic/versions/
+
+# 3. Review the file, then commit it alongside your models.py change
+
+# 4. Apply to local dev DB
+docker exec f1-race-replay-backend-1 uv run alembic upgrade head
+
+# 5. Apply to RDS (swap in the RDS connection string)
+DATABASE_URL=postgresql+asyncpg://<user>:<pass>@<rds-host>:5432/<db> \
+  uv run alembic upgrade head
+```
+
+The `alembic_version` table in each database tracks which migration was last applied. `upgrade head` only runs what's missing, so it's safe to run on any DB at any revision.
+
+**Check current state:**
+
+```bash
+docker exec f1-race-replay-backend-1 uv run alembic current   # what revision the DB is at
+docker exec f1-race-replay-backend-1 uv run alembic check     # whether any models are out of sync
+```
+
+## Database
+
+All data lives in Postgres. Every table is keyed by `race_id` (format: `singapore-2023-r`).
+
+| Table | What it stores | Where it's used |
+|-------|---------------|-----------------|
+| `race_sessions` | One row per ingested session — name, type, year, country, OpenF1 session key | Session picker; `/sessions` endpoint |
+| `events` | Raw car telemetry — x/y position and speed per driver per timestamp | Source data for building states and the track outline; largest table (~300k–500k rows per race) |
+| `snapshots` | Pre-computed car state every 30 seconds, stored as JSON blobs | Fast initial state lookup without scanning all events |
+| `position_events` | Race position (1st, 2nd…) per driver over time | Timing tower standings |
+| `interval_events` | Gap to leader and gap to car ahead per driver over time | Timing tower gap/interval columns |
+| `lap_events` | One row per completed lap — lap time, tyre compound, tyre age | Timing tower lap times and tyre info |
+| `session_results` | Final result per driver — DNF, DNS, DSQ, laps completed | Timing tower retirement/status markers |
+| `qualifying_phases` | Q1/Q2/Q3 start and end timestamps | Timing tower elimination group logic (qualifying sessions only) |
+
 ## API
 
 | Method | Endpoint | Description | Response shape |
