@@ -86,6 +86,24 @@ All data lives in Postgres. Every table is keyed by `race_id` (format: `singapor
 | `session_results` | Final result per driver — DNF, DNS, DSQ, laps completed | Timing tower retirement/status markers |
 | `qualifying_phases` | Q1/Q2/Q3 start and end timestamps | Timing tower elimination group logic (qualifying sessions only) |
 
+## OpenF1 endpoints
+
+These are the OpenF1 API endpoints the ingestor calls and what each one contributes.
+
+| OpenF1 Endpoint | Fetched per | What it contains | Stored in | Used for |
+|-----------------|-------------|-----------------|-----------|----------|
+| `/sessions` | year | Session metadata (name, type, date, circuit) | `race_sessions` | Session picker list |
+| `/drivers` | session | Driver numbers, acronyms, team | (memory only) | Maps driver number → acronym for all other calls |
+| `/location` | session + driver | X/Y coordinates + speed, ~4Hz | `events` | Car dots on the track map |
+| `/position` | session (all drivers) | Track position (P1, P2…) over time | `position_events` | Timing tower ordering |
+| `/intervals` | session (all drivers) | Gap to leader + interval to car ahead | `interval_events` | Gap display in timing tower |
+| `/laps` | session + driver | Lap number, lap duration, start timestamp | `lap_events` | Lap times in timing tower |
+| `/stints` | session + driver | Tyre compound + age per stint | (joined into `lap_events`) | Tyre compound display in timing tower |
+| `/race_control` | session | Session status messages (Q1/Q2/Q3 start/end) | `qualifying_phases` | Q phase boundaries on scrubber |
+| `/session_result` | session | DNF / DNS / DSQ flags + laps completed | `session_results` | Greyed-out retired drivers in tower |
+
+`/location`, `/laps`, and `/stints` are fetched **per driver** (up to 20 calls each). Everything else is a single bulk call for the whole session.
+
 ## API
 
 | Method | Endpoint | Description | Response shape |
