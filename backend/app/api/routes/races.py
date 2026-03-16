@@ -656,7 +656,7 @@ async def list_available_sessions(
             race_id=ingested.get(s["session_key"]),
         )
         for s in openf1_sessions
-        if "session_key" in s
+        if "session_key" in s and s.get("session_name") not in ("Day 1", "Day 2", "Day 3")
     ]
 
 
