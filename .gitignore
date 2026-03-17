@@ -3,3 +3,10 @@
 
 # Vite dev cache
 frontend/.vite/
+
+# Local env files (contain secrets)
+.env.local
+.env*.local
+backend/.env
+infra/.env.terraform
+infra/.envrc
