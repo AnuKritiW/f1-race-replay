@@ -1,6 +1,8 @@
 import type { RaceState, RaceTimeline, SessionInfo, AvailableSession, TimingState, ScrubFrame } from '../types'
 
 const BASE = '/api'
+const ADMIN_KEY = import.meta.env.VITE_ADMIN_KEY ?? 'dev'
+const ADMIN_HEADERS = { 'X-Admin-Key': ADMIN_KEY }
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`)
@@ -8,12 +10,24 @@ async function get<T>(path: string): Promise<T> {
   return res.json()
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+async function adminGet<T>(path: string): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { headers: ADMIN_HEADERS })
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  return res.json()
+}
+
+async function adminPost<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...ADMIN_HEADERS },
     body: JSON.stringify(body),
   })
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  return res.json()
+}
+
+async function adminDelete<T>(path: string): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { method: 'DELETE', headers: ADMIN_HEADERS })
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return res.json()
 }
@@ -52,23 +66,19 @@ export const fetchSessions = (): Promise<SessionInfo[]> =>
   get('/sessions')
 
 export const fetchAvailableSessions = (year: number): Promise<AvailableSession[]> =>
-  get(`/admin/sessions/available?year=${year}`)
+  adminGet(`/admin/sessions/available?year=${year}`)
 
 export const postIngest = (race_id: string, session_key: number): Promise<{ race_id: string; status: string }> =>
-  post('/admin/sessions/ingest', { race_id, session_key })
+  adminPost('/admin/sessions/ingest', { race_id, session_key })
 
 export const fetchIngestProgress = (race_id: string): Promise<{ total: number; done: number; status: string }> =>
-  get(`/admin/sessions/${race_id}/progress`)
+  adminGet(`/admin/sessions/${race_id}/progress`)
 
 export const fetchActiveIngests = (): Promise<Record<string, { done: number; total: number }>> =>
-  get('/admin/sessions/ingest/active')
+  adminGet('/admin/sessions/ingest/active')
 
-export const cancelIngest = (race_id: string): Promise<{ race_id: string; status: string }> => {
-  return fetch(`${BASE}/admin/sessions/${race_id}/ingest`, { method: 'DELETE' }).then((r) => r.json())
-}
+export const cancelIngest = (race_id: string): Promise<{ race_id: string; status: string }> =>
+  adminDelete(`/admin/sessions/${race_id}/ingest`)
 
 export const deleteSession = (race_id: string): Promise<{ race_id: string; status: string }> =>
-  fetch(`${BASE}/admin/sessions/${race_id}`, { method: 'DELETE' }).then((r) => {
-    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-    return r.json()
-  })
+  adminDelete(`/admin/sessions/${race_id}`)

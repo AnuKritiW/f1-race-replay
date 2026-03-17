@@ -1,11 +1,15 @@
 from datetime import datetime
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Security
 from fastapi.responses import Response
+from fastapi.security.api_key import APIKeyHeader
 import json
 import re
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy import delete, select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import AsyncSessionLocal, get_db
 from app.models import Event, IntervalEvent, LapEvent, PositionEvent, QualifyingPhase, RaceSession, SessionResult, Snapshot
 from app.schemas import (
@@ -15,6 +19,14 @@ from app.schemas import (
 from app.ingestor.loader import load_race, load_timing
 from app.ingestor.openf1 import BASE_URL, _get, fetch_sessions, fetch_race_control
 from app.snapshot.builder import build_snapshots
+
+limiter = Limiter(key_func=get_remote_address)
+_admin_key_header = APIKeyHeader(name="X-Admin-Key", auto_error=False)
+
+
+def _require_admin(key: str = Security(_admin_key_header)):
+    if key != settings.admin_key:
+        raise HTTPException(status_code=403, detail="Invalid or missing admin key")
 
 
 def _parse_deleted_time_and_driver(msg: str) -> tuple[str, float] | None:
@@ -62,7 +74,8 @@ async def _first_motion_ts(race_id: str, db: AsyncSession) -> float | None:
 
 
 @router.get("/races/{race_id}/timeline", response_model=RaceTimeline)
-async def get_timeline(race_id: str, db: AsyncSession = Depends(get_db)):
+@limiter.limit("60/minute")
+async def get_timeline(request: Request, race_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(func.min(Event.timestamp), func.max(Event.timestamp))
         .where(Event.race_id == race_id)
@@ -79,7 +92,9 @@ async def get_timeline(race_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/races/{race_id}/state", response_model=RaceState)
+@limiter.limit("60/minute")
 async def get_state(
+    request: Request,
     race_id: str,
     at: float = Query(..., description="Unix timestamp"),
     db: AsyncSession = Depends(get_db),
@@ -120,7 +135,9 @@ async def get_state(
 
 
 @router.get("/races/{race_id}/states")
+@limiter.limit("20/minute")
 async def get_bulk_states(
+    request: Request,
     race_id: str,
     step: int = Query(1, ge=1, description="Interval in seconds between states"),
     from_ts: float | None = Query(None, alias="from"),
@@ -179,7 +196,9 @@ async def get_bulk_states(
 
 
 @router.get("/races/{race_id}/timing")
+@limiter.limit("20/minute")
 async def get_bulk_timing(
+    request: Request,
     race_id: str,
     from_ts: float | None = Query(None, alias="from"),
     to_ts: float | None = Query(None, alias="to"),
@@ -449,7 +468,8 @@ async def get_bulk_timing(
 
 
 @router.get("/races/{race_id}/scrub")
-async def get_scrub_buffer(race_id: str, db: AsyncSession = Depends(get_db)):
+@limiter.limit("20/minute")
+async def get_scrub_buffer(request: Request, race_id: str, db: AsyncSession = Depends(get_db)):
     """Return position-only frames every 5 seconds for fast initial load."""
     if race_id in _scrub_cache:
         return Response(content=_scrub_cache[race_id], media_type="application/json")
@@ -541,7 +561,8 @@ async def get_live(race_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/races/{race_id}/drivers")
-async def get_driver_colors(race_id: str, db: AsyncSession = Depends(get_db)):
+@limiter.limit("20/minute")
+async def get_driver_colors(request: Request, race_id: str, db: AsyncSession = Depends(get_db)):
     """Return {acronym: '#rrggbb'} for every driver in this session, sourced from OpenF1."""
     result = await db.execute(
         select(RaceSession.session_key).where(RaceSession.race_id == race_id)
@@ -559,7 +580,8 @@ async def get_driver_colors(race_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/races/{race_id}/track", response_model=list[TrackPoint])
-async def get_track(race_id: str, db: AsyncSession = Depends(get_db)):
+@limiter.limit("20/minute")
+async def get_track(request: Request, race_id: str, db: AsyncSession = Depends(get_db)):
     if race_id in _track_cache:
         return _track_cache[race_id]
     # Load x/y/driver for all drivers to build a consensus grid, then pick
@@ -614,7 +636,8 @@ async def get_track(race_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/sessions", response_model=list[SessionInfo])
-async def list_sessions(db: AsyncSession = Depends(get_db)):
+@limiter.limit("60/minute")
+async def list_sessions(request: Request, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(RaceSession).order_by(RaceSession.year.desc(), RaceSession.date_start))
     sessions = result.scalars().all()
     return [
@@ -636,6 +659,7 @@ async def list_sessions(db: AsyncSession = Depends(get_db)):
 async def list_available_sessions(
     year: int = Query(..., description="Season year"),
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(_require_admin),
 ):
     openf1_sessions = await fetch_sessions(year)
 
@@ -719,6 +743,7 @@ async def ingest_session(
     body: IngestRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(_require_admin),
 ):
     existing = await db.execute(
         select(RaceSession).where(RaceSession.race_id == body.race_id)
@@ -732,7 +757,7 @@ async def ingest_session(
 
 
 @router.get("/admin/sessions/ingest/active")
-async def get_active_ingests():
+async def get_active_ingests(_: None = Depends(_require_admin)):
     """Return all currently running ingestions as {race_id: {done, total}}."""
     return {
         race_id: {"done": state["done"], "total": state["total"]}
@@ -742,7 +767,7 @@ async def get_active_ingests():
 
 
 @router.get("/admin/sessions/{race_id}/progress")
-async def get_ingest_progress(race_id: str):
+async def get_ingest_progress(race_id: str, _: None = Depends(_require_admin)):
     state = _ingest_state.get(race_id)
     if state is None:
         raise HTTPException(status_code=404, detail="No ingest found for this race_id")
@@ -750,7 +775,7 @@ async def get_ingest_progress(race_id: str):
 
 
 @router.delete("/admin/sessions/{race_id}/ingest", status_code=200)
-async def cancel_ingest(race_id: str):
+async def cancel_ingest(race_id: str, _: None = Depends(_require_admin)):
     state = _ingest_state.get(race_id)
     if state is None or state["status"] != "running":
         raise HTTPException(status_code=404, detail="No active ingest for this race_id")
@@ -759,7 +784,7 @@ async def cancel_ingest(race_id: str):
 
 
 @router.delete("/admin/sessions/{race_id}", status_code=200)
-async def delete_session(race_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_session(race_id: str, db: AsyncSession = Depends(get_db), _: None = Depends(_require_admin)):
     """Delete all ingested data for a session."""
     existing = await db.execute(select(RaceSession).where(RaceSession.race_id == race_id))
     if existing.scalar_one_or_none() is None:
@@ -790,6 +815,7 @@ async def delete_session(race_id: str, db: AsyncSession = Depends(get_db)):
 async def ingest_race(
     race_id: str,
     session_key: int = Query(..., description="OpenF1 session key"),
+    _: None = Depends(_require_admin),
 ):
     events_inserted = await load_race(race_id, session_key)
     snapshots_written = await build_snapshots(race_id)
