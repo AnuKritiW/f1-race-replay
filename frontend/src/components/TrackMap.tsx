@@ -20,7 +20,7 @@ const CIRCUIT_ROTATION: Record<string, number> = {
   'jeddah': 109,
   'melbourne': 43,
   'suzuka': 0,
-  'shanghai': 123,
+  'shanghai': -123,
   'miami': 0,
   'imola': 0,
   'monte-carlo': -45,
