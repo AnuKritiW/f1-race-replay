@@ -16,7 +16,7 @@ from app.api.routes.races import router as races_router
 
 limiter = Limiter(key_func=get_remote_address)
 
-STATIC_DIR = os.path.join(os.path.dirname(__file__), "../../static")
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "../static")
 
 
 @asynccontextmanager
