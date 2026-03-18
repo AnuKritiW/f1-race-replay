@@ -9,12 +9,18 @@ interface Props {
   scrollYRef: React.RefObject<number>
 }
 
+function cityFromRaceId(raceId: string): string {
+  const city = raceId.replace(/-\d{4}-.+$/, '')
+  return city.split('-').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')
+}
+
 function groupByEvent(sessions: SessionInfo[]): Map<string, SessionInfo[]> {
   const map = new Map<string, SessionInfo[]>()
   for (const s of sessions) {
-    const arr = map.get(s.event_name) ?? []
+    const key = cityFromRaceId(s.race_id)
+    const arr = map.get(key) ?? []
     arr.push(s)
-    map.set(s.event_name, arr)
+    map.set(key, arr)
   }
   return map
 }
