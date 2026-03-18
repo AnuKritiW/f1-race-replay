@@ -245,7 +245,7 @@ function App() {
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null)
 
   // Lifted so year selection survives navigating to replay and back
-  const [year, setYear] = useState(2024)
+  const [year, setYear] = useState(0)
   // Saves the scroll position of the session picker before navigating away
   const scrollYRef = useRef(0)
 

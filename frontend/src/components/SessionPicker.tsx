@@ -32,19 +32,27 @@ function SessionChip({ label, onClick }: { label: string; onClick: () => void })
       style={{
         height: '28px',
         padding: '4px 10px',
-        border: '1px solid #10b981',
+        border: `1px solid var(--color-border)`,
         borderRadius: '4px',
-        background: 'rgba(16,185,129,0.15)',
-        color: '#10b981',
+        background: 'transparent',
+        color: 'var(--color-muted)',
         fontSize: '13px',
         fontFamily: 'var(--font-data)',
         cursor: 'pointer',
         display: 'inline-flex',
         alignItems: 'center',
-        transition: 'background 0.15s ease',
+        transition: 'border-color 0.15s ease, color 0.15s ease',
       }}
-      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(16,185,129,0.28)' }}
-      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(16,185,129,0.15)' }}
+      onMouseEnter={(e) => {
+        const b = e.currentTarget as HTMLButtonElement
+        b.style.borderColor = 'var(--color-accent)'
+        b.style.color = 'var(--color-text)'
+      }}
+      onMouseLeave={(e) => {
+        const b = e.currentTarget as HTMLButtonElement
+        b.style.borderColor = 'var(--color-border)'
+        b.style.color = 'var(--color-muted)'
+      }}
     >
       {label}
     </button>
@@ -143,6 +151,11 @@ export function SessionPicker({ onSelect, year, onYearChange, scrollYRef }: Prop
   }, [])
 
   const years = Array.from(new Set(allSessions.map((s) => s.year))).sort((a, b) => b - a)
+
+  useEffect(() => {
+    if (years.length > 0 && year === 0) onYearChange(years[0])
+  }, [years.join(',')])
+
   const sessions = allSessions.filter((s) => s.year === year)
   const grouped = groupByEvent(sessions)
 
