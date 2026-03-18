@@ -1,8 +1,11 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -12,6 +15,8 @@ from app.models import Base
 from app.api.routes.races import router as races_router
 
 limiter = Limiter(key_func=get_remote_address)
+
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "../../static")
 
 
 @asynccontextmanager
@@ -33,9 +38,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(races_router)
+app.include_router(races_router, prefix="/api")
 
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# Serve React frontend in production (static dir is built by Dockerfile)
+if os.path.isdir(STATIC_DIR):
+    app.mount("/assets", StaticFiles(directory=os.path.join(STATIC_DIR, "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        return FileResponse(os.path.join(STATIC_DIR, "index.html"))
