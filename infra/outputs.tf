@@ -11,3 +11,8 @@ output "rds_host" {
 output "db_name" {
   value = aws_db_instance.main.db_name
 }
+
+output "ecr_repository_url" {
+  description = "ECR repository URL for pushing images"
+  value       = aws_ecr_repository.app.repository_url
+}
