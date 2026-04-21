@@ -53,3 +53,9 @@ variable "bastion_public_key" {
   type        = string
   default     = ""
 }
+
+variable "admin_key" {
+  description = "Secret key protecting /admin/* endpoints"
+  type        = string
+  sensitive   = true
+}

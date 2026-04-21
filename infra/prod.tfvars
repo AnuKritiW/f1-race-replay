@@ -4,8 +4,9 @@ db_name           = "f1replay"
 db_username       = "f1"
 db_instance_class = "db.t3.micro"
 
-# Set db_password via TF_VAR_db_password env var or pass -var="db_password=..." on the CLI
-# Never commit the actual password here.
+# Set db_password and admin_key via env vars or CLI — never commit values here.
+# export TF_VAR_db_password=...
+# export TF_VAR_admin_key=...
 
 # Uncomment when loading data via bastion:
 # rds_publicly_accessible = false
