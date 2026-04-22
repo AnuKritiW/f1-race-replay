@@ -59,3 +59,9 @@ variable "admin_key" {
   type        = string
   sensitive   = true
 }
+
+variable "domain_name" {
+  description = "Registered domain name (e.g. formulareplay.com)"
+  type        = string
+  default     = "formulareplay.com"
+}

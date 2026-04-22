@@ -93,16 +93,19 @@ resource "aws_ecs_task_definition" "app" {
   }])
 }
 
-# ── Security group: allow public access on port 8000 ─────────────────────────
+# ── Security group: allow traffic from ALB only ───────────────────────────────
+#
+# Previously this accepted port 8000 from anywhere. Now only the ALB security
+# group can reach the container — direct public IP access is blocked.
 
 resource "aws_security_group_rule" "ecs_http_in" {
-  type              = "ingress"
-  from_port         = 8000
-  to_port           = 8000
-  protocol          = "tcp"
-  cidr_blocks       = ["0.0.0.0/0"]
-  security_group_id = aws_security_group.ecs.id
-  description       = "Public HTTP"
+  type                     = "ingress"
+  from_port                = 8000
+  to_port                  = 8000
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.alb.id
+  security_group_id        = aws_security_group.ecs.id
+  description              = "From ALB only"
 }
 
 # ── Service ───────────────────────────────────────────────────────────────────
@@ -119,4 +122,12 @@ resource "aws_ecs_service" "app" {
     security_groups  = [aws_security_group.ecs.id]
     assign_public_ip = true
   }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.app.arn
+    container_name   = var.app_name
+    container_port   = 8000
+  }
+
+  depends_on = [aws_lb_listener.https]
 }
