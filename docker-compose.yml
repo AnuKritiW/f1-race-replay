@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: f1
       POSTGRES_PASSWORD: f1pass
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - /Volumes/T7/f1racereplaydata:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
@@ -43,5 +43,3 @@ services:
       backend:
         condition: service_healthy
 
-volumes:
-  postgres_data:

@@ -172,8 +172,12 @@ async def load_timing(
         async with semaphore:
             dn = driver["driver_number"]
             acronym = num_to_acronym.get(dn, str(dn))
-            laps = await fetch_laps(session_key, dn)
-            stints = await fetch_stints(session_key, dn)
+            try:
+                laps = await fetch_laps(session_key, dn)
+                stints = await fetch_stints(session_key, dn)
+            except Exception as e:
+                print(f"  {acronym}: skipping laps/stints — {e}")
+                return 0
             if not laps:
                 return 0
 

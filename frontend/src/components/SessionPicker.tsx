@@ -1,37 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
-import { cancelIngest, deleteSession, fetchActiveIngests, fetchAvailableSessions, fetchIngestProgress, postIngest } from '../api/client'
-import type { AvailableSession } from '../types'
+import { fetchSessions } from '../api/client'
+import type { SessionInfo } from '../types'
 
 interface Props {
-  onSelect: (raceId: string, session: AvailableSession) => void
+  onSelect: (raceId: string, session: SessionInfo) => void
   year: number
   onYearChange: (y: number) => void
   scrollYRef: React.RefObject<number>
 }
 
-const YEARS = [2025, 2024, 2023]
-
-function generateRaceId(session: AvailableSession): string {
-  const country = (session.circuit_short_name || session.country_name).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
-  const year = session.year
-  const nameMap: Record<string, string> = {
-    'Practice 1': 'p1',
-    'Practice 2': 'p2',
-    'Practice 3': 'p3',
-    'Qualifying': 'q',
-    'Race': 'r',
-    'Sprint': 's',
-    'Sprint Qualifying': 'sq',
-    'Sprint Shootout': 'ss',
-  }
-  const code = nameMap[session.session_name] ?? session.session_name.toLowerCase().replace(/\s+/g, '-')
-  return `${country}-${year}-${code}`
+function cityFromRaceId(raceId: string): string {
+  const city = raceId.replace(/-\d{4}-.+$/, '')
+  return city.split('-').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')
 }
 
-function groupByEvent(sessions: AvailableSession[]): Map<string, AvailableSession[]> {
-  const map = new Map<string, AvailableSession[]>()
+function groupByEvent(sessions: SessionInfo[]): Map<string, SessionInfo[]> {
+  const map = new Map<string, SessionInfo[]>()
   for (const s of sessions) {
-    const key = s.circuit_short_name || s.event_name || s.country_name
+    const key = cityFromRaceId(s.race_id)
     const arr = map.get(key) ?? []
     arr.push(s)
     map.set(key, arr)
@@ -39,43 +25,48 @@ function groupByEvent(sessions: AvailableSession[]): Map<string, AvailableSessio
   return map
 }
 
-function ProgressRing({ done, total }: { done: number; total: number }) {
-  const r = 7
-  const circumference = 2 * Math.PI * r
-  const progress = total > 0 ? done / total : 0
-  const offset = circumference * (1 - progress)
+function SessionChip({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 18 18" style={{ display: 'block', flexShrink: 0 }}>
-      <circle cx="9" cy="9" r={r} fill="none" stroke="#555" strokeWidth="2" />
-      <circle
-        cx="9" cy="9" r={r}
-        fill="none" stroke="#e10600" strokeWidth="2"
-        strokeDasharray={circumference}
-        strokeDashoffset={offset}
-        strokeLinecap="round"
-        transform="rotate(-90 9 9)"
-        style={{ transition: 'stroke-dashoffset 0.4s ease' }}
-      />
-    </svg>
+    <button
+      onClick={onClick}
+      style={{
+        height: '28px',
+        padding: '4px 10px',
+        border: `1px solid var(--color-border)`,
+        borderRadius: '4px',
+        background: 'transparent',
+        color: 'var(--color-muted)',
+        fontSize: '13px',
+        fontFamily: 'var(--font-data)',
+        cursor: 'pointer',
+        display: 'inline-flex',
+        alignItems: 'center',
+        transition: 'border-color 0.15s ease, color 0.15s ease',
+      }}
+      onMouseEnter={(e) => {
+        const b = e.currentTarget as HTMLButtonElement
+        b.style.borderColor = 'var(--color-accent)'
+        b.style.color = 'var(--color-text)'
+      }}
+      onMouseLeave={(e) => {
+        const b = e.currentTarget as HTMLButtonElement
+        b.style.borderColor = 'var(--color-border)'
+        b.style.color = 'var(--color-muted)'
+      }}
+    >
+      {label}
+    </button>
   )
 }
 
-type IngestProgress = { done: number; total: number; raceId: string }
-
 interface EventCardProps {
   name: string
-  sessions: AvailableSession[]
+  sessions: SessionInfo[]
   year: number
-  ingestProgress: Map<number, IngestProgress>
-  failedIngests: Map<number, string>
-  onIngest: (session: AvailableSession) => void
-  onRetry: (session: AvailableSession) => void
-  onCancel: (sessionKey: number, raceId: string) => void
-  onDelete: (sessionKey: number, raceId: string) => void
-  onSelect: (raceId: string, session: AvailableSession) => void
+  onSelect: (raceId: string, session: SessionInfo) => void
 }
 
-function EventCard({ name, sessions, year, ingestProgress, failedIngests, onIngest, onRetry, onCancel, onDelete, onSelect }: EventCardProps) {
+function EventCard({ name, sessions, year, onSelect }: EventCardProps) {
   const country = sessions[0]?.country_name ?? ''
 
   return (
@@ -123,297 +114,49 @@ function EventCard({ name, sessions, year, ingestProgress, failedIngests, onInge
       </div>
       <div style={{ height: '1px', background: 'var(--color-border)', marginBottom: '12px' }} />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-        {sessions.map((s) => {
-          const progress = ingestProgress.get(s.session_key)
-          const isIngesting = !!progress
-          const isFailed = failedIngests.has(s.session_key)
-
-          if (isFailed) {
-            return (
-              <SessionChip
-                key={s.session_key}
-                label={`${s.session_name} ⟳`}
-                variant="failed"
-                onClick={() => onRetry(s)}
-              />
-            )
-          }
-
-          if (isIngesting) {
-            return (
-              <div
-                key={s.session_key}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '6px',
-                  padding: '4px 6px 4px 10px',
-                  background: 'transparent',
-                  border: '1px solid #555',
-                  borderRadius: '4px',
-                  fontSize: '13px',
-                  fontFamily: 'var(--font-data)',
-                  color: 'var(--color-muted)',
-                }}
-              >
-                <span>{s.session_name}</span>
-                <ProgressRing done={progress.done} total={progress.total} />
-                <button
-                  onClick={() => onCancel(s.session_key, progress.raceId)}
-                  title="Cancel ingest"
-                  style={{
-                    background: 'none', border: 'none', color: '#f55',
-                    cursor: 'pointer', padding: '0 2px', fontSize: '13px',
-                    lineHeight: 1,
-                  }}
-                >
-                  ✕
-                </button>
-              </div>
-            )
-          }
-
-          if (s.ingested && s.race_id) {
-            return (
-              <IngestedChip
-                key={s.session_key}
-                label={s.session_name}
-                onClick={() => onSelect(s.race_id!, s)}
-                onDelete={() => onDelete(s.session_key, s.race_id!)}
-              />
-            )
-          }
-
-          return (
-            <SessionChip
-              key={s.session_key}
-              label={`${s.session_name} ↓`}
-              variant="available"
-              onClick={() => onIngest(s)}
-            />
-          )
-        })}
+        {sessions.map((s) => (
+          <SessionChip
+            key={s.session_key}
+            label={s.session_name}
+            onClick={() => onSelect(s.race_id, s)}
+          />
+        ))}
       </div>
     </div>
   )
 }
 
-function IngestedChip({ label, onClick, onDelete }: { label: string; onClick: () => void; onDelete: () => void }) {
-  const [hovered, setHovered] = useState(false)
-  return (
-    <div
-      style={{ position: 'relative', display: 'inline-flex' }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <SessionChip label={label} variant="ingested" onClick={onClick} />
-      <button
-        onClick={(e) => { e.stopPropagation(); onDelete() }}
-        title="Remove session data"
-        style={{
-          position: 'absolute', right: '-6px', top: '-6px',
-          width: '16px', height: '16px',
-          background: '#333', border: '1px solid #555', borderRadius: '50%',
-          color: '#aaa', cursor: 'pointer', fontSize: '9px',
-          display: hovered ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center',
-          padding: 0,
-        }}
-      >✕</button>
-    </div>
-  )
-}
-
-function SessionChip({
-  label,
-  variant,
-  onClick,
-}: {
-  label: string
-  variant: 'ingested' | 'available' | 'failed'
-  onClick: () => void
-}) {
-  const [hovered, setHovered] = useState(false)
-
-  const base: React.CSSProperties = {
-    height: '28px',
-    padding: '4px 10px',
-    border: 'none',
-    borderRadius: '4px',
-    fontSize: '13px',
-    fontFamily: 'var(--font-data)',
-    cursor: 'pointer',
-    display: 'inline-flex',
-    alignItems: 'center',
-    transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease',
-  }
-
-  const ingested: React.CSSProperties = {
-    background: 'rgba(16,185,129,0.15)',
-    border: '1px solid #10b981',
-    color: '#10b981',
-  }
-
-  const available: React.CSSProperties = {
-    background: 'transparent',
-    border: `1px solid ${hovered ? 'var(--color-accent)' : '#444'}`,
-    color: hovered ? 'var(--color-text)' : 'var(--color-muted)',
-  }
-
-  const failed: React.CSSProperties = {
-    background: 'rgba(255,85,85,0.08)',
-    border: '1px solid #f55',
-    color: '#f88',
-  }
-
-  const variantStyle = variant === 'ingested' ? ingested : variant === 'failed' ? failed : available
-
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{ ...base, ...variantStyle }}
-    >
-      {label}
-    </button>
-  )
-}
-
 export function SessionPicker({ onSelect, year, onYearChange, scrollYRef }: Props) {
-  const [sessions, setSessions] = useState<AvailableSession[]>([])
+  const [allSessions, setAllSessions] = useState<SessionInfo[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [ingestProgress, setIngestProgress] = useState<Map<number, IngestProgress>>(new Map())
-  const [failedIngests, setFailedIngests] = useState<Map<number, string>>(new Map()) // sessionKey → raceId
-  const pollRefs = useRef<Map<number, ReturnType<typeof setInterval>>>(new Map())
 
-  // Restore scroll position after sessions have loaded (page must be tall enough first)
   const scrollRestoredRef = useRef(false)
   useEffect(() => {
-    if (!loading && sessions.length > 0 && !scrollRestoredRef.current) {
+    if (!loading && allSessions.length > 0 && !scrollRestoredRef.current) {
       scrollRestoredRef.current = true
       window.scrollTo(0, scrollYRef.current)
     }
-  }, [loading, sessions, scrollYRef])
+  }, [loading, allSessions, scrollYRef])
 
   useEffect(() => {
     let ignore = false
     setLoading(true)
     setError(null)
-    setSessions([])
-    fetchAvailableSessions(year)
-      .then((data) => {
-        if (ignore) return
-        setSessions(data)
-        // Best-effort: restore progress rings for any ingestions still running on the server
-        fetchActiveIngests().then((active) => {
-          if (ignore || Object.keys(active).length === 0) return
-          const toRestore: Array<[number, IngestProgress]> = []
-          data.forEach((s) => {
-            const raceId = generateRaceId(s)
-            if (active[raceId] && !pollRefs.current.has(s.session_key)) {
-              toRestore.push([s.session_key, { done: active[raceId].done, total: active[raceId].total, raceId }])
-            }
-          })
-          if (toRestore.length > 0) {
-            setIngestProgress(new Map(toRestore))
-            toRestore.forEach(([sessionKey, { raceId }]) => startProgressPoll(sessionKey, raceId))
-          }
-        }).catch(() => {}) // best-effort — never block the session list on this
-      })
+    fetchSessions()
+      .then((data) => { if (!ignore) setAllSessions(data) })
       .catch((e) => { if (!ignore) setError(e.message) })
       .finally(() => { if (!ignore) setLoading(false) })
     return () => { ignore = true }
-  }, [year])
-
-  function stopPoll(sessionKey: number) {
-    const id = pollRefs.current.get(sessionKey)
-    if (id !== undefined) {
-      clearInterval(id)
-      pollRefs.current.delete(sessionKey)
-    }
-  }
-
-  function startProgressPoll(sessionKey: number, raceId: string) {
-    const id = setInterval(async () => {
-      try {
-        const prog = await fetchIngestProgress(raceId)
-        setIngestProgress((prev) => {
-          const next = new Map(prev)
-          next.set(sessionKey, { done: prog.done, total: prog.total, raceId })
-          return next
-        })
-
-        if (prog.status === 'done') {
-          stopPoll(sessionKey)
-          setSessions((prev) =>
-            prev.map((s) =>
-              s.session_key === sessionKey ? { ...s, ingested: true, race_id: raceId } : s
-            )
-          )
-          setIngestProgress((prev) => { const next = new Map(prev); next.delete(sessionKey); return next })
-        } else if (prog.status === 'error') {
-          stopPoll(sessionKey)
-          setIngestProgress((prev) => { const next = new Map(prev); next.delete(sessionKey); return next })
-          setFailedIngests((prev) => new Map(prev).set(sessionKey, raceId))
-        } else if (prog.status === 'cancelled') {
-          stopPoll(sessionKey)
-          setIngestProgress((prev) => { const next = new Map(prev); next.delete(sessionKey); return next })
-        }
-      } catch {
-        // ignore transient poll errors
-      }
-    }, 1000)
-    pollRefs.current.set(sessionKey, id)
-  }
-
-  async function handleIngest(session: AvailableSession) {
-    const raceId = generateRaceId(session)
-    setIngestProgress((prev) => new Map(prev).set(session.session_key, { done: 0, total: 0, raceId }))
-
-    try {
-      await postIngest(raceId, session.session_key)
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      if (!msg.includes('409')) {
-        setIngestProgress((prev) => { const next = new Map(prev); next.delete(session.session_key); return next })
-        setFailedIngests((prev) => new Map(prev).set(session.session_key, raceId))
-        return
-      }
-    }
-
-    startProgressPoll(session.session_key, raceId)
-  }
-
-  async function handleDelete(sessionKey: number, raceId: string) {
-    if (!confirm(`Remove all data for ${raceId}? This cannot be undone.`)) return
-    try {
-      await deleteSession(raceId)
-      setSessions((prev) =>
-        prev.map((s) => s.session_key === sessionKey ? { ...s, ingested: false, race_id: null } : s)
-      )
-    } catch (e: unknown) {
-      setError(`Delete failed: ${e instanceof Error ? e.message : String(e)}`)
-    }
-  }
-
-  function handleRetry(session: AvailableSession) {
-    setFailedIngests((prev) => { const next = new Map(prev); next.delete(session.session_key); return next })
-    handleIngest(session)
-  }
-
-  async function handleCancel(sessionKey: number, raceId: string) {
-    stopPoll(sessionKey)
-    setIngestProgress((prev) => { const next = new Map(prev); next.delete(sessionKey); return next })
-    try {
-      await cancelIngest(raceId)
-    } catch {
-      // best-effort cancel
-    }
-  }
-
-  useEffect(() => {
-    return () => { pollRefs.current.forEach((_, key) => stopPoll(key)) }
   }, [])
 
+  const years = Array.from(new Set(allSessions.map((s) => s.year))).sort((a, b) => b - a)
+
+  useEffect(() => {
+    if (years.length > 0 && year === 0) onYearChange(years[0])
+  }, [years.join(',')])
+
+  const sessions = allSessions.filter((s) => s.year === year)
   const grouped = groupByEvent(sessions)
 
   return (
@@ -430,7 +173,7 @@ export function SessionPicker({ onSelect, year, onYearChange, scrollYRef }: Prop
           SELECT SESSION
         </h1>
         <div style={{ display: 'flex', gap: '4px' }}>
-          {YEARS.map((y) => (
+          {years.map((y) => (
             <button
               key={y}
               onClick={() => onYearChange(y)}
@@ -488,12 +231,6 @@ export function SessionPicker({ onSelect, year, onYearChange, scrollYRef }: Prop
                 name={eventName}
                 sessions={eventSessions}
                 year={year}
-                ingestProgress={ingestProgress}
-                failedIngests={failedIngests}
-                onIngest={handleIngest}
-                onRetry={handleRetry}
-                onCancel={handleCancel}
-                onDelete={handleDelete}
                 onSelect={onSelect}
               />
             ))

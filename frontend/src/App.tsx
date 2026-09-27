@@ -6,7 +6,7 @@ import { PlaybackControls } from './components/PlaybackControls'
 import { Scrubber } from './components/Scrubber'
 import { SessionPicker } from './components/SessionPicker'
 import { TimingTower } from './components/TimingTower'
-import type { AvailableSession, RaceTimeline } from './types'
+import type { SessionInfo, RaceTimeline } from './types'
 
 type Speed = 1 | 5 | 10
 const SPEED_LIST: Speed[] = [1, 5, 10]
@@ -21,7 +21,7 @@ function AppHeader({
   sessionInfo,
   onBack,
 }: {
-  sessionInfo: AvailableSession | null
+  sessionInfo: SessionInfo | null
   onBack?: () => void
 }) {
   return (
@@ -87,7 +87,7 @@ function ReplayPlayer({
 }: {
   raceId: string
   timeline: RaceTimeline
-  sessionInfo: AvailableSession | null
+  sessionInfo: SessionInfo | null
   sessionType: string
   onBack: () => void
 }) {
@@ -187,7 +187,7 @@ function Replay({
   onBack,
 }: {
   raceId: string
-  sessionInfo: AvailableSession | null
+  sessionInfo: SessionInfo | null
   onBack: () => void
 }) {
   const [timeline, setTimeline] = useState<RaceTimeline | null>(null)
@@ -242,10 +242,10 @@ function Replay({
 function App() {
   // Initialise from URL so a page refresh restores the current session
   const [raceId, setRaceId] = useState<string | null>(parseRoute)
-  const [selectedSession, setSelectedSession] = useState<AvailableSession | null>(null)
+  const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null)
 
   // Lifted so year selection survives navigating to replay and back
-  const [year, setYear] = useState(2024)
+  const [year, setYear] = useState(0)
   // Saves the scroll position of the session picker before navigating away
   const scrollYRef = useRef(0)
 
@@ -259,7 +259,7 @@ function App() {
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
 
-  function handleSelect(id: string, session: AvailableSession) {
+  function handleSelect(id: string, session: SessionInfo) {
     scrollYRef.current = window.scrollY
     const debug = window.location.search.includes('rotateDebug') ? window.location.search : ''
     window.history.pushState({}, '', `/replay/${id}${debug}`)

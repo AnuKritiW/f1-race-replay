@@ -1,6 +1,8 @@
-import type { RaceState, RaceTimeline, SessionInfo, AvailableSession, TimingState, ScrubFrame } from '../types'
+import type { RaceState, RaceTimeline, SessionInfo, TimingState, ScrubFrame } from '../types'
 
 const BASE = '/api'
+const STATIC_BASE = (import.meta.env.VITE_STATIC_BASE_URL as string | undefined)
+  ?? 'https://static.formulareplay.com'
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`)
@@ -8,18 +10,36 @@ async function get<T>(path: string): Promise<T> {
   return res.json()
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+async function getStatic<T>(url: string): Promise<T> {
+  const res = await fetch(url)
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return res.json()
 }
 
+// ── Static (CloudFront) ────────────────────────────────────────────────────────
+
+export const fetchSessions = (): Promise<SessionInfo[]> =>
+  getStatic(`${STATIC_BASE}/sessions.json`)
+
 export const fetchTimeline = (raceId: string): Promise<RaceTimeline> =>
-  get(`/races/${raceId}/timeline`)
+  getStatic(`${STATIC_BASE}/${raceId}/timeline.json`)
+
+export const fetchBulkStates = (raceId: string): Promise<RaceState[]> =>
+  getStatic(`${STATIC_BASE}/${raceId}/states.json`)
+
+export const fetchBulkTiming = (raceId: string): Promise<TimingState[]> =>
+  getStatic(`${STATIC_BASE}/${raceId}/timing.json`)
+
+export const fetchScrubBuffer = (raceId: string): Promise<ScrubFrame[]> =>
+  getStatic(`${STATIC_BASE}/${raceId}/scrub.json`)
+
+export const fetchTrack = (raceId: string): Promise<Array<{ x: number; y: number }>> =>
+  getStatic(`${STATIC_BASE}/${raceId}/track.json`)
+
+export const fetchDriverColors = (raceId: string): Promise<Record<string, string>> =>
+  getStatic(`${STATIC_BASE}/${raceId}/drivers.json`)
+
+// ── Dynamic (API) ─────────────────────────────────────────────────────────────
 
 export const fetchState = (raceId: string, at: number): Promise<RaceState> =>
   get(`/races/${raceId}/state?at=${at}`)
@@ -27,48 +47,8 @@ export const fetchState = (raceId: string, at: number): Promise<RaceState> =>
 export const fetchLive = (raceId: string): Promise<RaceState> =>
   get(`/races/${raceId}/live`)
 
-export const fetchBulkStates = (raceId: string): Promise<RaceState[]> =>
-  get(`/races/${raceId}/states`)
-
-export const fetchBulkTiming = (raceId: string): Promise<TimingState[]> =>
-  get(`/races/${raceId}/timing`)
-
-export const fetchScrubBuffer = (raceId: string): Promise<ScrubFrame[]> =>
-  get(`/races/${raceId}/scrub`)
-
 export const fetchTileStates = (raceId: string, from: number, to: number): Promise<RaceState[]> =>
   get(`/races/${raceId}/states?from=${from}&to=${to}`)
 
 export const fetchTileTiming = (raceId: string, from: number, to: number): Promise<TimingState[]> =>
   get(`/races/${raceId}/timing?from=${from}&to=${to}`)
-
-export const fetchTrack = (raceId: string): Promise<Array<{ x: number; y: number }>> =>
-  get(`/races/${raceId}/track`)
-
-export const fetchDriverColors = (raceId: string): Promise<Record<string, string>> =>
-  get(`/races/${raceId}/drivers`)
-
-export const fetchSessions = (): Promise<SessionInfo[]> =>
-  get('/sessions')
-
-export const fetchAvailableSessions = (year: number): Promise<AvailableSession[]> =>
-  get(`/admin/sessions/available?year=${year}`)
-
-export const postIngest = (race_id: string, session_key: number): Promise<{ race_id: string; status: string }> =>
-  post('/admin/sessions/ingest', { race_id, session_key })
-
-export const fetchIngestProgress = (race_id: string): Promise<{ total: number; done: number; status: string }> =>
-  get(`/admin/sessions/${race_id}/progress`)
-
-export const fetchActiveIngests = (): Promise<Record<string, { done: number; total: number }>> =>
-  get('/admin/sessions/ingest/active')
-
-export const cancelIngest = (race_id: string): Promise<{ race_id: string; status: string }> => {
-  return fetch(`${BASE}/admin/sessions/${race_id}/ingest`, { method: 'DELETE' }).then((r) => r.json())
-}
-
-export const deleteSession = (race_id: string): Promise<{ race_id: string; status: string }> =>
-  fetch(`${BASE}/admin/sessions/${race_id}`, { method: 'DELETE' }).then((r) => {
-    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-    return r.json()
-  })
