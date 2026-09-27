@@ -48,6 +48,12 @@ variable "rds_allowed_cidr" {
   default     = ""
 }
 
+variable "bastion_ssh_cidr" {
+  description = "Your IP in CIDR notation to whitelist for SSH into the bastion (e.g. 1.2.3.4/32)"
+  type        = string
+  default     = ""
+}
+
 variable "bastion_public_key" {
   description = "SSH public key for the bastion host"
   type        = string

@@ -26,3 +26,8 @@ output "app_url" {
   description = "Public URL of the app"
   value       = "https://${var.domain_name}"
 }
+
+output "static_url" {
+  description = "CloudFront URL for static session data (set as VITE_STATIC_BASE_URL)"
+  value       = "https://static.${var.domain_name}"
+}

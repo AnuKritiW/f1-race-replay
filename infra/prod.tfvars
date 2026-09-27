@@ -10,5 +10,5 @@ domain_name       = "formulareplay.com"
 # export TF_VAR_admin_key=...
 
 # Uncomment when loading data via bastion:
-# rds_publicly_accessible = false
-bastion_enabled         = false
+# bastion_ssh_cidr = "x.x.x.x/32"
+bastion_enabled  = false
