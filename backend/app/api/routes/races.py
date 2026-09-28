@@ -1,6 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Security
 from fastapi.responses import Response
 from fastapi.security.api_key import APIKeyHeader
+import httpx
 import json
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -37,6 +38,35 @@ _ingest_state: dict[str, dict] = {}
 _scrub_cache: dict[str, bytes] = {}
 _bulk_states_list_cache: dict[str, list] = {}
 _bulk_timing_list_cache: dict[str, list] = {}
+
+
+async def _fetch_static_json(race_id: str, filename: str, db: AsyncSession) -> list | None:
+    """Try the pre-exported copy on S3/CloudFront before falling back to a DB rebuild.
+
+    export_to_s3.py writes states.json/timing.json for every ingested race using the same
+    svc.build_bulk_states/build_bulk_timing functions this route would otherwise call directly —
+    rebuilding from scratch on every cold cache is redundant work when a finished copy already
+    exists on the CDN. Falls back to None (triggering a DB rebuild) for anything not yet exported.
+
+    Checks the race still exists in the DB first: delete_session() clears the in-memory route
+    caches but has no way to remove the corresponding S3 object, so without this check a deleted
+    race would keep serving its stale exported copy forever instead of 404ing.
+    """
+    exists = (await db.execute(
+        select(RaceSession.race_id).where(RaceSession.race_id == race_id)
+    )).scalar_one_or_none()
+    if exists is None:
+        return None
+
+    url = f"{settings.static_base_url}/{race_id}/{filename}"
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.get(url)
+            if r.status_code != 200:
+                return None
+            return r.json()
+    except Exception:
+        return None
 
 
 @router.get("/races/{race_id}/timeline", response_model=RaceTimeline)
@@ -101,7 +131,9 @@ async def get_bulk_states(
 ):
     cache_key = f"{race_id}:{step}"
     if cache_key not in _bulk_states_cache:
-        states = await svc.build_bulk_states(race_id, db, step)
+        states = await _fetch_static_json(race_id, "states.json", db) if step == 1 else None
+        if states is None:
+            states = await svc.build_bulk_states(race_id, db, step)
         if states is None:
             raise HTTPException(status_code=404, detail=f"Race '{race_id}' not found")
         _bulk_states_cache[cache_key] = json.dumps(states).encode()
@@ -132,7 +164,9 @@ async def get_bulk_timing(
     db: AsyncSession = Depends(get_db),
 ):
     if race_id not in _bulk_timing_cache:
-        frames = await svc.build_bulk_timing(race_id, db)
+        frames = await _fetch_static_json(race_id, "timing.json", db)
+        if frames is None:
+            frames = await svc.build_bulk_timing(race_id, db)
         if frames is None:
             raise HTTPException(status_code=404, detail=f"Race '{race_id}' not found")
         _bulk_timing_cache[race_id] = json.dumps(frames).encode()
