@@ -139,7 +139,12 @@ async def build_bulk_timing(race_id: str, db: AsyncSession) -> list[dict] | None
     for r in raw_results:
         if r.dnf or r.dns or r.dsq:
             reason = "DSQ" if r.dsq else ("DNS" if r.dns else "DNF")
-            retirements[r.driver_id] = {"reason": reason, "n_laps": r.number_of_laps or 0}
+            # number_of_laps is None when the classification isn't tied to a lap the driver
+            # stopped at — e.g. a post-race technical DSQ, where the driver raced the full
+            # distance and was excluded afterward. Coercing that to 0 would flip their status
+            # right after lap 3 instead of near the end of the race, so it's preserved as None
+            # and handled separately below.
+            retirements[r.driver_id] = {"reason": reason, "n_laps": r.number_of_laps}
 
     lap_start_by_number: dict[int, float] = {}
     for e in lap_events:
@@ -299,7 +304,12 @@ async def build_bulk_timing(race_id: str, db: AsyncSession) -> list[dict] | None
             if ret is None:
                 continue
             n_laps = ret["n_laps"]
-            cutoff_ts = lap_start_by_number.get(n_laps + 3)
+            if n_laps is None:
+                # Not tied to a lap they stopped at (e.g. post-race DSQ) — only reflect it in
+                # the final moments of the timeline, not from wherever lap 3 happens to be.
+                cutoff_ts = end_ts - 60
+            else:
+                cutoff_ts = lap_start_by_number.get(n_laps + 3)
             is_out = cutoff_ts is not None and t >= int(cutoff_ts)
             if is_out:
                 standing["status"] = "out"
