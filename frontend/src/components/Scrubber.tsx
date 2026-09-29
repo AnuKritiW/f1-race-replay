@@ -50,6 +50,21 @@ export function Scrubber({ timeline, playheadTime, isPlaying, onScrub, onPlay, o
           }}
           style={{ width: '100%', '--range-pct': `${pct}%` } as React.CSSProperties}
         />
+        {timeline.duration > 0 && timeline.race_start_time != null && (
+          <div
+            title="Race start"
+            style={{
+              position: 'absolute',
+              left: `${(timeline.race_start_time - timeline.start_time) / timeline.duration * 100}%`,
+              width: '2px',
+              height: '14px',
+              top: '50%',
+              transform: 'translate(-50%, -50%)',
+              background: 'var(--color-accent)',
+              pointerEvents: 'none',
+            }}
+          />
+        )}
         {timeline.duration > 0 && (loadedRanges ?? []).map(([from, to]) => {
           const left = Math.max(0, (from - timeline.start_time) / timeline.duration * 100)
           const width = Math.min(100 - left, (to - from) / timeline.duration * 100)
