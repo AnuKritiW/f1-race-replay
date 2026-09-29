@@ -57,11 +57,20 @@ async def build_timeline(race_id: str, db: AsyncSession) -> dict | None:
         select(func.max(LapEvent.lap_number)).where(LapEvent.race_id == race_id)
     )
     total_laps = total_laps_row.scalar()
+    # Timestamp the first driver actually completes lap 1 — the formation/grid lap is included
+    # in start_time..end_time, so this marks where competitive racing actually begins within
+    # that range. None for sessions with no lap data (e.g. a session that never really started).
+    race_start_row = await db.execute(
+        select(func.min(LapEvent.timestamp))
+        .where(LapEvent.race_id == race_id, LapEvent.lap_number == 1)
+    )
+    race_start_time = race_start_row.scalar()
     return {
         "start_time": start_time,
         "end_time": row[1],
         "duration": row[1] - start_time,
         "total_laps": total_laps,
+        "race_start_time": race_start_time,
     }
 
 
