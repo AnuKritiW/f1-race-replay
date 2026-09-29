@@ -185,7 +185,7 @@ export function TimingTower({ timingBufferRef, scrubBufferRef, playheadRef, colo
               letterSpacing: '1px',
               color: 'var(--color-muted)',
             }}>
-              LAP {currentLap}{totalLaps ? `/${totalLaps}` : ''}
+              {currentLap === 0 ? 'FORMATION' : `LAP ${currentLap}${totalLaps ? `/${totalLaps}` : ''}`}
             </span>
           )}
           {view === 'position' && (

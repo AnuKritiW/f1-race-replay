@@ -43,6 +43,21 @@ async def _first_motion_ts(race_id: str, db: AsyncSession) -> float | None:
     return result.scalar()
 
 
+async def _race_start_ts(race_id: str, db: AsyncSession) -> float | None:
+    """Timestamp the first driver actually completes lap 1.
+
+    Single source of truth for "when did the race actually start" (as opposed to start_time,
+    which includes the formation/grid lap). Used by both build_timeline (race_start_time, for
+    the scrubber marker) and build_bulk_timing (the FORMATION -> LAP 1 transition) so the two
+    can't drift apart from being computed two different ways.
+    """
+    result = await db.execute(
+        select(func.min(LapEvent.timestamp))
+        .where(LapEvent.race_id == race_id, LapEvent.lap_number == 1)
+    )
+    return result.scalar()
+
+
 async def build_timeline(race_id: str, db: AsyncSession) -> dict | None:
     """Returns None if race not found."""
     result = await db.execute(
@@ -62,6 +77,7 @@ async def build_timeline(race_id: str, db: AsyncSession) -> dict | None:
         "end_time": row[1],
         "duration": row[1] - start_time,
         "total_laps": total_laps,
+        "race_start_time": await _race_start_ts(race_id, db),
     }
 
 
@@ -144,12 +160,20 @@ async def build_bulk_timing(race_id: str, db: AsyncSession) -> list[dict] | None
             # distance and was excluded afterward. Coercing that to 0 would flip their status
             # right after lap 3 instead of near the end of the race, so it's preserved as None
             # and handled separately below.
-            retirements[r.driver_id] = {"reason": reason, "n_laps": r.number_of_laps}
+            retirements[r.driver_id] = {"reason": reason, "n_laps": r.number_of_laps, "dns": r.dns}
 
     lap_start_by_number: dict[int, float] = {}
     for e in lap_events:
         if e.lap_number not in lap_start_by_number or e.timestamp < lap_start_by_number[e.lap_number]:
             lap_start_by_number[e.lap_number] = e.timestamp
+
+    # OpenF1's race_control lap counter (current_race_lap below) ticks to 1 as soon as the
+    # formation lap begins — not a reliable "race actually started" signal, and can precede
+    # any real lap data by tens of minutes on a delayed start. Whether any driver has actually
+    # completed lap 1 yet is what determines whether there's real data to show. Uses the same
+    # _race_start_ts() as build_timeline's race_start_time so the FORMATION->LAP 1 transition
+    # and the scrubber marker can't drift apart from being computed two different ways.
+    lap1_completed_ts = await _race_start_ts(race_id, db)
 
     q_phases = (await db.execute(
         select(QualifyingPhase.phase, QualifyingPhase.start_ts, QualifyingPhase.end_ts)
@@ -217,6 +241,35 @@ async def build_bulk_timing(race_id: str, db: AsyncSession) -> list[dict] | None
     driver_state: dict[str, dict] = {}
     tyre_base: dict[str, tuple[int, int]] = {}
     session_best: float | None = None
+
+    # A driver who never started has no position/interval/lap events at all, so they'd never
+    # get a driver_state entry and would be missing from the tower entirely. Seed a static
+    # placeholder row for them — no stored grid/qualifying position exists to show, so they
+    # sort to the bottom via the existing status=="out" sort key.
+    telemetry_driver_ids = (
+        {e.driver_id for e in pos_events}
+        | {e.driver_id for e in int_events}
+        | {e.driver_id for e in lap_events}
+    )
+    phantom_dns_standings = [
+        {
+            "driver_id": r.driver_id,
+            "position": None,
+            "gap_to_leader": None,
+            "interval": None,
+            "last_lap_duration": None,
+            "best_lap_duration": None,
+            "lap_number": 0,
+            "compound": None,
+            "tyre_age": 0,
+            "is_fastest_lap": False,
+            "status": "out",
+            "eliminated_in_phase": None,
+            "out_reason": "DNS",
+        }
+        for r in raw_results
+        if r.dns and r.driver_id not in telemetry_driver_ids
+    ]
 
     pos_idx = int_idx = lap_idx = rc_lap_idx = 0
     current_race_lap: int | None = None
@@ -298,19 +351,25 @@ async def build_bulk_timing(race_id: str, db: AsyncSession) -> list[dict] | None
                 "eliminated_in_phase": elim[0] if is_eliminated else None,
                 "out_reason": None,
             })
+        standings.extend(phantom_dns_standings)
 
         for standing in standings:
             ret = retirements.get(standing["driver_id"])
             if ret is None:
                 continue
-            n_laps = ret["n_laps"]
-            if n_laps is None:
-                # Not tied to a lap they stopped at (e.g. post-race DSQ) — only reflect it in
-                # the final moments of the timeline, not from wherever lap 3 happens to be.
-                cutoff_ts = end_ts - 60
+            if ret["dns"]:
+                # Never started — out from the very beginning of the timeline, not a
+                # lap-based or end-of-race cutoff.
+                is_out = True
             else:
-                cutoff_ts = lap_start_by_number.get(n_laps + 3)
-            is_out = cutoff_ts is not None and t >= int(cutoff_ts)
+                n_laps = ret["n_laps"]
+                if n_laps is None:
+                    # Not tied to a lap they stopped at (e.g. post-race DSQ) — only reflect it
+                    # in the final moments of the timeline, not from wherever lap 3 happens to be.
+                    cutoff_ts = end_ts - 60
+                else:
+                    cutoff_ts = lap_start_by_number.get(n_laps + 3)
+                is_out = cutoff_ts is not None and t >= int(cutoff_ts)
             if is_out:
                 standing["status"] = "out"
                 standing["out_reason"] = ret["reason"]
@@ -322,7 +381,10 @@ async def build_bulk_timing(race_id: str, db: AsyncSession) -> list[dict] | None
             s["position"] or 9999,
         ))
         standings_max_lap = max((ds.get("lap_number") or 0 for ds in driver_state.values()), default=0)
-        effective_race_lap = max(current_race_lap or 0, standings_max_lap) or None
+        race_started = lap1_completed_ts is not None and t >= lap1_completed_ts
+        # 0 means no driver has completed lap 1 yet (formation/grid/delayed start) — not
+        # "unknown". Frontend renders 0 as "FORMATION" instead of "LAP 0/N".
+        effective_race_lap = max(current_race_lap or 0, standings_max_lap) if race_started else 0
         frames.append({"timestamp": float(t), "standings": standings, "race_lap": effective_race_lap})
 
     return frames
