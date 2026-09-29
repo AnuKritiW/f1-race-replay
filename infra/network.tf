@@ -109,15 +109,22 @@ resource "aws_security_group" "rds" {
   description = "RDS Postgres"
   vpc_id      = aws_vpc.main.id
 
-  # ECS tasks can always reach RDS
-  ingress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.ecs.id]
-  }
+  # No inline ingress/egress here on purpose: mixing inline rule blocks with the separately
+  # managed aws_security_group_rule resources below (rds_from_ecs, rds_from_bastion,
+  # rds_from_laptop) causes Terraform to treat this resource as authoritative over the whole
+  # rule set, silently reverting the separate rules on every apply that touches this SG.
 
   tags = { Name = "${var.app_name}-rds-sg" }
+}
+
+resource "aws_security_group_rule" "rds_from_ecs" {
+  type                     = "ingress"
+  from_port                = 5432
+  to_port                  = 5432
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.ecs.id
+  security_group_id        = aws_security_group.rds.id
+  description              = "ECS tasks can always reach RDS"
 }
 
 # Temporary rule: open RDS to your IP for the data-load step.
