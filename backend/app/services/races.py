@@ -43,6 +43,21 @@ async def _first_motion_ts(race_id: str, db: AsyncSession) -> float | None:
     return result.scalar()
 
 
+async def _race_start_ts(race_id: str, db: AsyncSession) -> float | None:
+    """Timestamp the first driver actually completes lap 1.
+
+    Single source of truth for "when did the race actually start" (as opposed to start_time,
+    which includes the formation/grid lap). Used by both build_timeline (race_start_time, for
+    the scrubber marker) and build_bulk_timing (the FORMATION -> LAP 1 transition) so the two
+    can't drift apart from being computed two different ways.
+    """
+    result = await db.execute(
+        select(func.min(LapEvent.timestamp))
+        .where(LapEvent.race_id == race_id, LapEvent.lap_number == 1)
+    )
+    return result.scalar()
+
+
 async def build_timeline(race_id: str, db: AsyncSession) -> dict | None:
     """Returns None if race not found."""
     result = await db.execute(
@@ -57,20 +72,12 @@ async def build_timeline(race_id: str, db: AsyncSession) -> dict | None:
         select(func.max(LapEvent.lap_number)).where(LapEvent.race_id == race_id)
     )
     total_laps = total_laps_row.scalar()
-    # Timestamp the first driver actually completes lap 1 — the formation/grid lap is included
-    # in start_time..end_time, so this marks where competitive racing actually begins within
-    # that range. None for sessions with no lap data (e.g. a session that never really started).
-    race_start_row = await db.execute(
-        select(func.min(LapEvent.timestamp))
-        .where(LapEvent.race_id == race_id, LapEvent.lap_number == 1)
-    )
-    race_start_time = race_start_row.scalar()
     return {
         "start_time": start_time,
         "end_time": row[1],
         "duration": row[1] - start_time,
         "total_laps": total_laps,
-        "race_start_time": race_start_time,
+        "race_start_time": await _race_start_ts(race_id, db),
     }
 
 
@@ -163,8 +170,10 @@ async def build_bulk_timing(race_id: str, db: AsyncSession) -> list[dict] | None
     # OpenF1's race_control lap counter (current_race_lap below) ticks to 1 as soon as the
     # formation lap begins — not a reliable "race actually started" signal, and can precede
     # any real lap data by tens of minutes on a delayed start. Whether any driver has actually
-    # completed lap 1 yet is what determines whether there's real data to show.
-    lap1_completed_ts = lap_start_by_number.get(1)
+    # completed lap 1 yet is what determines whether there's real data to show. Uses the same
+    # _race_start_ts() as build_timeline's race_start_time so the FORMATION->LAP 1 transition
+    # and the scrubber marker can't drift apart from being computed two different ways.
+    lap1_completed_ts = await _race_start_ts(race_id, db)
 
     q_phases = (await db.execute(
         select(QualifyingPhase.phase, QualifyingPhase.start_ts, QualifyingPhase.end_ts)

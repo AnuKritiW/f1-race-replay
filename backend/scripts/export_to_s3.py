@@ -8,8 +8,8 @@ Usage (from backend/):
     # Export specific race IDs only:
     S3_BUCKET=f1-replay-static-data AWS_PROFILE=f1-replay-deploy .venv/bin/python scripts/export_to_s3.py monaco-2023-r bahrain-2024-r
 
-Files written per race_id:
-    {race_id}/timeline.json
+Files written per race_id (timeline.json is not written — it's served live, see
+frontend/src/api/client.ts):
     {race_id}/states.json
     {race_id}/timing.json
     {race_id}/scrub.json
@@ -62,7 +62,8 @@ async def export_race(race_id: str, s3) -> bool:
         track   = await svc.build_track(race_id, db)
         drivers = await svc.build_driver_colors(race_id, db)
 
-    upload(s3, f"{race_id}/timeline.json", timeline)
+    # timeline.json is intentionally not uploaded — fetchTimeline is a live backend call now,
+    # not a static fetch (see frontend/src/api/client.ts), so a cached copy here would go stale.
     upload(s3, f"{race_id}/states.json",   states or [])
     upload(s3, f"{race_id}/timing.json",   timing or [])
     upload(s3, f"{race_id}/scrub.json",    scrub  or [])

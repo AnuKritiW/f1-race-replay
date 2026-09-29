@@ -21,9 +21,6 @@ async function getStatic<T>(url: string): Promise<T> {
 export const fetchSessions = (): Promise<SessionInfo[]> =>
   getStatic(`${STATIC_BASE}/sessions.json`)
 
-export const fetchTimeline = (raceId: string): Promise<RaceTimeline> =>
-  getStatic(`${STATIC_BASE}/${raceId}/timeline.json`)
-
 export const fetchBulkStates = (raceId: string): Promise<RaceState[]> =>
   getStatic(`${STATIC_BASE}/${raceId}/states.json`)
 
@@ -40,6 +37,12 @@ export const fetchDriverColors = (raceId: string): Promise<Record<string, string
   getStatic(`${STATIC_BASE}/${raceId}/drivers.json`)
 
 // ── Dynamic (API) ─────────────────────────────────────────────────────────────
+
+// Unlike states/timing, timeline is cheap to compute (two fast queries) — no benefit to
+// static caching, and keeping it dynamic means race_start_time is always fresh and can't
+// drift out of sync with a stale static export the way a cached timeline.json could.
+export const fetchTimeline = (raceId: string): Promise<RaceTimeline> =>
+  get(`/races/${raceId}/timeline`)
 
 export const fetchState = (raceId: string, at: number): Promise<RaceState> =>
   get(`/races/${raceId}/state?at=${at}`)
